@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View, Modal } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { ActionButton } from "@/components/ActionButton";
 import { LoadingState } from "@/components/LoadingState";
@@ -19,11 +19,12 @@ type Member = { user_id: string; role: string; profile?: { full_name?: string } 
 
 export default function ElderlyHome() {
   const router = useRouter();
-  const { t, language } = useI18n();
+  const { t, language, setLanguage } = useI18n();
   const family = useFamilyContext();
   const familyId = family.data?.family.id;
 
   const [currentTime, setCurrentTime] = useState("");
+  const [showLanguageModal, setShowLanguageModal] = useState(false);
   useEffect(() => {
     const updateDateTime = () => {
       const now = new Date();
@@ -59,6 +60,15 @@ export default function ElderlyHome() {
     queryKey: ["members", familyId],
     enabled: !!familyId,
     queryFn: () => api<Member[]>(`/families/${familyId}/members`),
+  });
+
+  const medHistory = useQuery({
+    queryKey: ["medicine-history", familyId],
+    enabled: !!familyId,
+    queryFn: () =>
+      api<Array<{ id: string; medication_id: string; status: string; created_at: string }>>(
+        `/medicines/history?family_id=${familyId}`
+      ),
   });
 
   if (family.isLoading) {
@@ -111,6 +121,12 @@ export default function ElderlyHome() {
   const completedCount = tasks.data?.filter((t) => t.status === "completed").length ?? 0;
   const totalCount = tasks.data?.length ?? 0;
   const pendingCount = tasks.data?.filter((t) => t.status === "pending").length ?? 0;
+  const isAllTasksDone = totalCount > 0 && pendingCount === 0;
+  const today = new Date().toDateString();
+  const todayTakenLog = medHistory.data?.find(
+    (log) => log.status === "confirmed_taken" && new Date(log.created_at).toDateString() === today
+  );
+  const locale = language === "hi" ? "hi-IN" : language === "ta" ? "ta-IN" : "en-US";
   const caregiver = members.data?.find((m) => m.role === "caregiver")?.profile?.full_name || "Anita";
   const firstMed = meds.data?.[0];
 
@@ -121,7 +137,8 @@ export default function ElderlyHome() {
         <Text style={styles.brandLogo}>{t("appName")}</Text>
         <Pressable
           accessibilityRole="button"
-          onPress={() => router.push("/(elderly)/(tabs)/profile")}
+          accessibilityLabel="Change language"
+          onPress={() => setShowLanguageModal(true)}
           style={styles.langBadge}
         >
           <Ionicons name="globe-outline" size={16} color={colors.muted} />
@@ -173,45 +190,68 @@ export default function ElderlyHome() {
         <Ionicons name="chevron-forward" size={22} color={colors.white} />
       </Pressable>
 
-      {/* 5. Today's Tasks Card */}
+      {/* 5. Today's Tasks Card (Figma Screen 52: Home · Walk completed) */}
       <Pressable
         accessibilityRole="button"
         onPress={() => router.push("/(elderly)/(tabs)/tasks")}
         style={({ pressed }) => [
           styles.infoCard,
+          isAllTasksDone && styles.infoCardCelebration,
           pressed && styles.pressedState,
         ]}
       >
-        <View style={styles.iconCircleBlue}>
-          <Ionicons name="checkbox-outline" size={24} color={colors.blue} />
+        <View style={isAllTasksDone ? styles.iconCircleGreen : styles.iconCircleBlue}>
+          <Ionicons
+            name={isAllTasksDone ? "checkmark-done-circle" : "checkbox-outline"}
+            size={24}
+            color={isAllTasksDone ? colors.green : colors.blue}
+          />
         </View>
         <View style={styles.infoCol}>
-          <Text style={styles.infoTitle}>{t("todaysTasks")}</Text>
+          <Text style={styles.infoTitle}>
+            {isAllTasksDone ? "All Tasks Completed! 🎉" : t("todaysTasks")}
+          </Text>
           <Text style={styles.infoSubtitle}>
             {totalCount > 0
-              ? t("tasksCompletedCount", { completed: completedCount, total: totalCount })
+              ? isAllTasksDone
+                ? `${t("tasksCompletedCount", { completed: completedCount, total: totalCount })} • Well done!`
+                : t("tasksCompletedCount", { completed: completedCount, total: totalCount })
               : t("noTasksToday")}
           </Text>
         </View>
         <Ionicons name="chevron-forward" size={20} color={colors.muted} />
       </Pressable>
 
-      {/* 6. Morning Medicine Card */}
+      {/* 6. Morning Medicine Card (Figma Screen 43: Home · Medicine confirmed) */}
       <Pressable
         accessibilityRole="button"
         onPress={() => router.push("/(elderly)/(tabs)/medicines")}
         style={({ pressed }) => [
           styles.infoCard,
+          todayTakenLog && styles.infoCardCelebration,
           pressed && styles.pressedState,
         ]}
       >
         <View style={styles.iconCircleGreen}>
-          <Ionicons name="medkit" size={24} color={colors.green} />
+          <Ionicons
+            name={todayTakenLog ? "checkmark-circle" : "medkit"}
+            size={24}
+            color={colors.green}
+          />
         </View>
         <View style={styles.infoCol}>
-          <Text style={styles.infoTitle}>{t("morningMedicine")}</Text>
+          <Text style={styles.infoTitle}>
+            {todayTakenLog ? "Morning Medicine • Taken ✓" : t("morningMedicine")}
+          </Text>
           <Text style={styles.infoSubtitle}>
-            {firstMed ? `${firstMed.name}${firstMed.dosage ? ` • ${firstMed.dosage}` : ""} • 10:00 AM` : "Metformin 500 mg • 10:00 AM"}
+            {todayTakenLog
+              ? `Confirmed taken today at ${new Date(todayTakenLog.created_at).toLocaleTimeString(locale, {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}`
+              : firstMed
+              ? `${firstMed.name}${firstMed.dosage ? ` • ${firstMed.dosage}` : ""} • 10:00 AM`
+              : "Metformin 500 mg • 10:00 AM"}
           </Text>
         </View>
         <Ionicons name="chevron-forward" size={20} color={colors.muted} />
@@ -272,6 +312,82 @@ export default function ElderlyHome() {
         </View>
         <Ionicons name="chevron-forward" size={20} color={colors.blue} />
       </Pressable>
+
+      {/* Quick Language Switcher Modal (Figma Screen 51: Voice language) */}
+      <Modal
+        visible={showLanguageModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowLanguageModal(false)}
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setShowLanguageModal(false)}
+        >
+          <Pressable
+            style={styles.modalCard}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.modalHeader}>
+              <View style={styles.modalIconCircle}>
+                <Ionicons name="globe-outline" size={26} color={colors.blue} />
+              </View>
+              <Text style={styles.modalTitle}>{t("chooseLanguage")}</Text>
+              <Text style={styles.modalSubtitle}>{t("languageChangeAnytime")}</Text>
+            </View>
+
+            <View style={styles.langOptionList}>
+              {[
+                { code: "en" as const, label: "English", sublabel: "English" },
+                { code: "hi" as const, label: "हिन्दी", sublabel: "Hindi" },
+                { code: "ta" as const, label: "தமிழ்", sublabel: "Tamil" },
+              ].map((item) => {
+                const isSelected = language === item.code;
+                return (
+                  <Pressable
+                    key={item.code}
+                    accessibilityRole="button"
+                    onPress={() => {
+                      setLanguage(item.code);
+                      setShowLanguageModal(false);
+                    }}
+                    style={[
+                      styles.langOptionCard,
+                      isSelected && styles.langOptionCardSelected,
+                    ]}
+                  >
+                    <View style={styles.langOptionInfo}>
+                      <Text
+                        style={[
+                          styles.langOptionLabel,
+                          isSelected && styles.langOptionLabelSelected,
+                        ]}
+                      >
+                        {item.label}
+                      </Text>
+                      <Text style={styles.langOptionSublabel}>{item.sublabel}</Text>
+                    </View>
+                    {isSelected ? (
+                      <Ionicons name="checkmark-circle" size={24} color={colors.blue} />
+                    ) : (
+                      <View style={styles.langOptionUnselectedDot} />
+                    )}
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <View style={styles.modalActions}>
+              <ActionButton
+                variant="secondary"
+                onPress={() => setShowLanguageModal(false)}
+              >
+                {t("cancel")}
+              </ActionButton>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </Screen>
   );
 }
@@ -395,6 +511,10 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 1,
   },
+  infoCardCelebration: {
+    backgroundColor: "#F7FCF9",
+    borderColor: "#C5E8D4",
+  },
   iconCircleBlue: {
     width: 48,
     height: 48,
@@ -514,5 +634,93 @@ const styles = StyleSheet.create({
   pressedState: {
     transform: [{ scale: 0.985 }],
     opacity: 0.92,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(23, 43, 77, 0.45)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 380,
+    backgroundColor: colors.white,
+    borderRadius: radii.cardMax,
+    padding: 24,
+    gap: 18,
+    shadowColor: colors.ink,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  modalHeader: {
+    alignItems: "center",
+    gap: 6,
+  },
+  modalIconCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: colors.pale,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+  },
+  modalTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 20,
+    color: colors.ink,
+    textAlign: "center",
+  },
+  modalSubtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: colors.muted,
+    textAlign: "center",
+  },
+  langOptionList: {
+    gap: 10,
+  },
+  langOptionCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 16,
+    borderRadius: radii.cardMin,
+    borderWidth: 1.5,
+    borderColor: colors.line,
+    backgroundColor: colors.white,
+  },
+  langOptionCardSelected: {
+    borderColor: colors.blue,
+    backgroundColor: colors.pale,
+  },
+  langOptionInfo: {
+    gap: 2,
+  },
+  langOptionLabel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 18,
+    color: colors.ink,
+  },
+  langOptionLabelSelected: {
+    color: colors.blue,
+  },
+  langOptionSublabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: colors.muted,
+  },
+  langOptionUnselectedDot: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: colors.line,
+  },
+  modalActions: {
+    marginTop: 4,
   },
 });

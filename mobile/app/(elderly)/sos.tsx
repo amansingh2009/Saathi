@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { StyleSheet, Text, View, Pressable, Linking } from "react-native";
+import { StyleSheet, Text, View, Pressable, Linking, Alert } from "react-native";
 import { useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
@@ -33,7 +33,9 @@ export default function SOS() {
   const familyId = family.data?.family.id;
 
   const [showConfirm, setShowConfirm] = useState(false);
+  const [showSafetyConfirm, setShowSafetyConfirm] = useState(false);
   const [sending, setSending] = useState(false);
+  const [resolving, setResolving] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState(false);
 
@@ -54,6 +56,20 @@ export default function SOS() {
   const caregiverName = caregiver?.profile?.full_name || "Anita Sharma";
   const caregiverPhone = caregiver?.profile?.phone || "+91 98765 01234";
 
+  async function resolveEmergency() {
+    if (!result?.event?.id) return;
+    setResolving(true);
+    try {
+      await api(`/emergency/${result.event.id}/resolve`, { method: "POST" });
+      setShowSafetyConfirm(false);
+      router.back();
+    } catch {
+      Alert.alert("Notice", "Couldn't update safety status. Please call your caregiver directly.");
+    } finally {
+      setResolving(false);
+    }
+  }
+
   async function send() {
     if (!familyId) return;
     setSending(true);
@@ -73,6 +89,51 @@ export default function SOS() {
     } finally {
       setSending(false);
     }
+  }
+
+  // 1a. Safety Confirmation Step (Figma Screen 50: Emergency · Safety confirmation)
+  if (result && showSafetyConfirm) {
+    return (
+      <Screen>
+        <View style={styles.topNav}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setShowSafetyConfirm(false)}
+            style={styles.backRow}
+          >
+            <Ionicons name="chevron-back" size={24} color={colors.ink} />
+            <Text style={styles.backLabel}>{t("cancel")}</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.confirmBox}>
+          <View style={styles.safetyCircleLarge}>
+            <Ionicons name="shield-checkmark" size={52} color={colors.green} />
+          </View>
+          <Text style={styles.confirmTitle}>Are you safe now?</Text>
+          <Text style={styles.confirmSubtitle}>
+            Confirming that you are safe will resolve the emergency alert and notify your family.
+          </Text>
+        </View>
+
+        <View style={styles.confirmActions}>
+          <ActionButton
+            variant="primary"
+            loading={resolving}
+            onPress={() => void resolveEmergency()}
+          >
+            Yes, I am safe
+          </ActionButton>
+          <ActionButton
+            variant="secondary"
+            disabled={resolving}
+            onPress={() => setShowSafetyConfirm(false)}
+          >
+            I still need help
+          </ActionButton>
+        </View>
+      </Screen>
+    );
   }
 
   // 1. Alert Sent / Acknowledged View
@@ -170,6 +231,13 @@ export default function SOS() {
         </Pressable>
 
         <View style={styles.bottomSection}>
+          {!isResolved ? (
+            <ActionButton
+              onPress={() => setShowSafetyConfirm(true)}
+            >
+              I am safe now
+            </ActionButton>
+          ) : null}
           <ActionButton variant="secondary" onPress={() => router.back()}>
             {t("done")}
           </ActionButton>
@@ -457,6 +525,16 @@ const styles = StyleSheet.create({
     backgroundColor: "#FDF2F4",
     borderWidth: 2,
     borderColor: "#FAD1D7",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  safetyCircleLarge: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: colors.mint,
+    borderWidth: 2,
+    borderColor: "#C5E8D4",
     alignItems: "center",
     justifyContent: "center",
   },
