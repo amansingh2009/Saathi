@@ -1,0 +1,1 @@
+-- Intentionally empty. Saathi starts without sample people, families, or health records.
