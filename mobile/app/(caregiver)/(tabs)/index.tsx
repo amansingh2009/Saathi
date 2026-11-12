@@ -282,7 +282,12 @@ export default function Dashboard() {
       {/* 7. Talk with Saathi */}
       <Pressable
         accessibilityRole="button"
-        onPress={() => router.push("/(elderly)/assistant")}
+        onPress={() =>
+          router.push({
+            pathname: "/(elderly)/assistant",
+            params: { initialMode: "text" },
+          })
+        }
         style={styles.guideBanner}
       >
         <Ionicons name="chatbubbles-outline" size={22} color={colors.blue} />

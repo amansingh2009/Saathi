@@ -1,5 +1,5 @@
 import Assistant from "../(elderly)/assistant";
 
 export default function GuidanceMonitor() {
-  return <Assistant />;
+  return <Assistant initialMode="text" />;
 }

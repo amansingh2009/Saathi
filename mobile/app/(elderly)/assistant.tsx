@@ -103,9 +103,10 @@ async function extractMessageText(data: unknown): Promise<string> {
   return String(data);
 }
 
-export default function Assistant() {
+export default function Assistant({ initialMode: propInitialMode }: { initialMode?: "text" | "voice" } = {}) {
   const router = useRouter();
   const params = useLocalSearchParams<{ initialMode?: "text" | "voice" }>();
+  const effectiveInitialMode = propInitialMode || params.initialMode;
   const { t, language } = useI18n();
   const family = useFamilyContext();
   const socket = useRef<WebSocket | null>(null);
@@ -122,7 +123,7 @@ export default function Assistant() {
   const [tool, setTool] = useState<ToolCall | null>(null);
   const [toolLabel, setToolLabel] = useState("");
   const [sharingScreen, setSharingScreen] = useState(false);
-  const [mode, setMode] = useState<"text" | "voice">(params.initialMode === "text" ? "text" : "voice");
+  const [mode, setMode] = useState<"text" | "voice">(effectiveInitialMode === "text" ? "text" : "voice");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatDraft, setChatDraft] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
