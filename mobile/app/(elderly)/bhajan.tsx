@@ -8,10 +8,11 @@ import { Screen } from "@/components/Screen";
 import { colors, radii } from "@/theme/tokens";
 import { useI18n } from "@/hooks/useI18n";
 
-const audioUrl = process.env.EXPO_PUBLIC_BHAJAN_URL?.trim();
+const fallbackAudioUrl = "https://ia800201.us.archive.org/21/items/GayatriMantra_201602/Gayatri%20Mantra.mp3";
+const audioUrl = process.env.EXPO_PUBLIC_BHAJAN_URL?.trim() || fallbackAudioUrl;
 const defaultTrackTitle = process.env.EXPO_PUBLIC_BHAJAN_TITLE?.trim() || "Gayatri Mantra";
 const defaultArtist = process.env.EXPO_PUBLIC_BHAJAN_ARTIST?.trim() || "Peaceful Morning Chants";
-const licensedSource = audioUrl && /^https:\/\//i.test(audioUrl) ? audioUrl : null;
+const licensedSource = audioUrl && /^https:\/\//i.test(audioUrl) ? audioUrl : fallbackAudioUrl;
 
 const BHAJAN_PLAYLIST = [
   { id: "1", title: "Gayatri Mantra", duration: "15 mins", type: "Sacred Chant" },

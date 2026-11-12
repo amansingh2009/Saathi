@@ -285,6 +285,64 @@ def test_confirmed_assistant_task_uses_authenticated_assigner():
     assert db.inserts[0][1]["assigned_by"] == USER_ID
 
 
+def test_get_medicine_history_returns_formatted_records():
+    db = MemoryDB(
+        tables={
+            "medications": [{"id": MED_ID, "name": "Metformin", "dosage": "500mg"}],
+            "medication_logs": [
+                {
+                    "medication_id": MED_ID,
+                    "status": "taken",
+                    "scheduled_for": "09:00",
+                    "created_at": "2026-11-12T04:30:00Z",
+                    "note": "Taken after breakfast",
+                }
+            ],
+        }
+    )
+    with api_client(db) as client:
+        response = client.post(
+            "/api/v1/ai/tool-execution",
+            json={
+                "name": "get_medicine_history",
+                "arguments": {
+                    "family_id": FAMILY_ID,
+                    "start_date": "2026-11-10",
+                    "end_date": "2026-11-13",
+                    "timezone": "Asia/Kolkata",
+                },
+            },
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["records"]) == 1
+    record = data["records"][0]
+    assert record["medicine"] == "Metformin"
+    assert record["dosage"] == "500mg"
+    assert record["status"] == "taken"
+    assert record["note"] == "Taken after breakfast"
+
+
+def test_get_medicine_history_validates_dates():
+    db = MemoryDB()
+    with api_client(db) as client:
+        # End date before start date
+        response = client.post(
+            "/api/v1/ai/tool-execution",
+            json={
+                "name": "get_medicine_history",
+                "arguments": {
+                    "family_id": FAMILY_ID,
+                    "start_date": "2026-11-15",
+                    "end_date": "2026-11-10",
+                },
+            },
+        )
+    assert response.status_code == 422
+    assert "on or after" in response.json()["detail"].lower()
+
+
+
 def test_live_voice_token_fails_clearly_when_gemini_is_not_configured(monkeypatch):
     from app.api.v1 import ai
     monkeypatch.setattr(ai, "get_settings", lambda: SimpleNamespace(gemini_api_key=None))
@@ -324,6 +382,30 @@ def test_live_voice_token_enables_transcription_and_interruptions(monkeypatch):
     assert config.output_audio_transcription is not None
     assert config.realtime_input_config.activity_handling == "START_OF_ACTIVITY_INTERRUPTS"
     assert observed["config"].live_connect_constraints.model == "gemini-3.8-live"
+
+
+def test_text_chat_returns_gemini_reply_for_authenticated_user(monkeypatch):
+    from app.api.v1 import ai
+
+    class FakeModels:
+        def generate_content(self, **_kwargs):
+            return SimpleNamespace(text="Hello! How can I help?", function_calls=[], candidates=[])
+
+    class FakeClient:
+        def __init__(self, **_kwargs):
+            self.models = FakeModels()
+
+    async def run_inline(function, **kwargs):
+        return function(**kwargs)
+
+    monkeypatch.setattr(ai, "get_settings", lambda: SimpleNamespace(gemini_api_key="configured", gemini_text_model="gemini-3.8-flash"))
+    monkeypatch.setattr(ai, "run_in_threadpool", run_inline)
+    monkeypatch.setattr("google.genai.Client", FakeClient)
+    with api_client(MemoryDB()) as client:
+        response = client.post("/api/v1/ai/chat", json={"messages": [{"role": "user", "content": "Hello Saathi"}]})
+
+    assert response.status_code == 200
+    assert response.json()["reply"] == "Hello! How can I help?"
 
 
 @pytest.mark.asyncio

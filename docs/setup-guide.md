@@ -10,12 +10,14 @@ Backend variables:
 - `GEMINI_API_KEY` is needed for `/ai/live-token`; keep it only in `backend/.env`.
 - `GEMINI_SCREEN_MODEL` optionally selects the image-analysis model for `/ai/guidance-image` (default `gemini-2.5-flash`). The same server-side Gemini API key is used.
 - `FIREBASE_CREDENTIALS_JSON` is the server Firebase service-account JSON as a single-line JSON value. It is needed for FCM delivery.
+- `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` configure the WebRTC calling service for Senior Connect and instant rooms.
 
 Mobile variables:
 
 - `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` configure Supabase Auth.
 - `EXPO_PUBLIC_API_BASE_URL` is the FastAPI URL reachable from the device. This workspace uses `http://10.0.2.2:8765/api/v1` for an Android emulator. For a physical device, use the development computer's LAN IP and allow local network access.
-- `EXPO_PUBLIC_BHAJAN_URL`, `EXPO_PUBLIC_BHAJAN_TITLE`, and `EXPO_PUBLIC_BHAJAN_ARTIST` configure one HTTPS track that Saathi is licensed to stream. Leave the URL empty until a source is approved.
+- `EXPO_PUBLIC_BHAJAN_URL`, `EXPO_PUBLIC_BHAJAN_TITLE`, and `EXPO_PUBLIC_BHAJAN_ARTIST` configure the devotional audio stream.
+- `EXPO_PUBLIC_LIVEKIT_URL` configures the WebRTC calling endpoint for Senior Connect video/audio calls.
 
 ## Mobile development
 
@@ -41,7 +43,7 @@ Open `http://localhost:8000/docs` for OpenAPI. Install dependencies from `backen
 
 ## Database
 
-The originally provisioned project `mrcuxavgdzxbaheshpzs` is active in Mumbai (`ap-south-1`) and has all SQL migrations applied. The local `.env` now points to the separately supplied project `yxzgpkizegnitwkxmoyf`; its Auth health endpoint is reachable, but its Data API currently returns `404` for Saathi tables. The management connector does not have permission to this second project, so its migrations still need to be applied after connecting that project in Supabase. Until then, sign-in may work, but family, task, and medicine APIs cannot run against that database.
+The local `.env` files point to the Saathi project `mrcuxavgdzxbaheshpzs` in Mumbai (`ap-south-1`). Its core tables and RLS policies are active. The family creator read policy is also recorded in `supabase/migrations/20261113090000_family_creator_can_select_new_family.sql` and has been applied to the connected project.
 
 ## Known external/device requirements
 

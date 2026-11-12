@@ -1,9 +1,15 @@
 import { Platform, NativeModules } from "react-native";
 import Constants from "expo-constants";
 
+export interface TrackReferences {
+  localTrackRef: any | null;
+  remoteTrackRef: any | null;
+}
+
 export interface LiveKitSessionEvents {
   onConnectionChange: (status: "connecting" | "connected" | "reconnecting" | "disconnected") => void;
   onRemoteTrackChange?: (hasVideo: boolean, hasAudio: boolean) => void;
+  onTracksChanged?: (tracks: TrackReferences) => void;
   onError?: (error: Error) => void;
 }
 
@@ -118,6 +124,11 @@ export class LiveKitCallSession {
         this.events.onConnectionChange("disconnected");
       });
 
+      const emitTracks = () => {
+        const refs = this.getTrackRefs();
+        this.events.onTracksChanged?.(refs);
+      };
+
       room.on(RoomEvent.TrackSubscribed, () => {
         const hasVideo = Array.from(room.remoteParticipants.values()).some((p: any) =>
           p.videoTrackPublications && Array.from(p.videoTrackPublications.values()).some((pub: any) => pub.isSubscribed && !pub.isMuted)
@@ -126,11 +137,18 @@ export class LiveKitCallSession {
           p.audioTrackPublications && Array.from(p.audioTrackPublications.values()).some((pub: any) => pub.isSubscribed && !pub.isMuted)
         );
         this.events.onRemoteTrackChange?.(hasVideo, hasAudio);
+        emitTracks();
       });
 
       room.on(RoomEvent.TrackUnsubscribed, () => {
         this.events.onRemoteTrackChange?.(false, false);
+        emitTracks();
       });
+
+      room.on(RoomEvent.LocalTrackPublished, emitTracks);
+      room.on(RoomEvent.LocalTrackUnpublished, emitTracks);
+      room.on(RoomEvent.TrackMuted, emitTracks);
+      room.on(RoomEvent.TrackUnmuted, emitTracks);
 
       await room.connect(url, token);
 
@@ -141,6 +159,7 @@ export class LiveKitCallSession {
       if (isVideo) {
         await room.localParticipant.setCameraEnabled(true);
       }
+      emitTracks();
     } catch (err) {
       console.warn("LiveKit connection notice, falling back to signaling mode:", err);
       this.state.isExpoGoSimulation = true;
@@ -206,6 +225,45 @@ export class LiveKitCallSession {
       }
       this.room = null;
     }
+  }
+
+  getTrackRefs(): TrackReferences {
+    if (!this.room) return { localTrackRef: null, remoteTrackRef: null };
+    let localTrackRef: any = null;
+    let remoteTrackRef: any = null;
+
+    try {
+      if (this.room.localParticipant) {
+        const pubs = Array.from(this.room.localParticipant.videoTrackPublications.values()) as any[];
+        const localPub = pubs.find((p) => p.track);
+        if (localPub) {
+          localTrackRef = {
+            participant: this.room.localParticipant,
+            publication: localPub,
+            source: localPub.source,
+          };
+        }
+      }
+
+      if (this.room.remoteParticipants) {
+        for (const remote of this.room.remoteParticipants.values()) {
+          const pubs = Array.from(remote.videoTrackPublications.values()) as any[];
+          const remotePub = pubs.find((p) => p.track && p.isSubscribed && !p.isMuted);
+          if (remotePub) {
+            remoteTrackRef = {
+              participant: remote,
+              publication: remotePub,
+              source: remotePub.source,
+            };
+            break;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Could not retrieve track references:", err);
+    }
+
+    return { localTrackRef, remoteTrackRef };
   }
 
   getNativeRoom(): any {

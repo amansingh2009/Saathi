@@ -68,7 +68,19 @@ class SupabaseREST:
         return response.json()
 
     async def select(self, table: str, *, columns: str = "*", **params: str) -> list[dict]:
-        result = await self.request("GET", table, params={"select": columns, **params}, prefer=None)
+        mapped_params = {}
+        for key, value in params.items():
+            if key in ("or_", "and_"):
+                k = key[:-1]
+                v = str(value)
+                if not v.startswith("("):
+                    v = f"({v})"
+                mapped_params[k] = v
+            elif key.endswith("_") and key[:-1] in ("in", "is", "not"):
+                mapped_params[key[:-1]] = value
+            else:
+                mapped_params[key] = value
+        result = await self.request("GET", table, params={"select": columns, **mapped_params}, prefer=None)
         return result if isinstance(result, list) else []
 
     async def insert(self, table: str, row: dict) -> dict:

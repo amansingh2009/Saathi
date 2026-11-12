@@ -9,7 +9,7 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { colors, radii, touchTargets } from "@/theme/tokens";
-import { LiveKitCallSession } from "@/services/livekit";
+import { LiveKitCallSession, isNativeWebRTCAvailable, TrackReferences } from "@/services/livekit";
 import { endCall, rejectCall } from "@/services/calls";
 import { supabase } from "@/services/supabase";
 import { formatCallDuration } from "@/utils/callPresentation";
@@ -31,9 +31,20 @@ export default function ActiveCallScreen() {
   const callId = params.callId;
   const roomName = params.roomName;
   const token = params.token;
-  const livekitUrl = params.livekitUrl || "wss://saathi-live.livekit.cloud";
+  const livekitUrl = params.livekitUrl || process.env.EXPO_PUBLIC_LIVEKIT_URL || "wss://saathi-jcyj1o0z.livekit.cloud";
   const isVideoCall = params.callType === "video";
   const peerName = params.peerName || "Senior Friend";
+
+  // Native VideoTrack reference if bundled in custom dev build
+  const NativeVideoTrack = isNativeWebRTCAvailable()
+    ? (() => {
+        try {
+          return require("@livekit/react-native").VideoTrack;
+        } catch {
+          return null;
+        }
+      })()
+    : null;
 
   // Media state
   const [connectionState, setConnectionState] = useState<
@@ -45,6 +56,10 @@ export default function ActiveCallScreen() {
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [isExpoGoMode, setIsExpoGoMode] = useState(false);
   const [callEndedNotice, setCallEndedNotice] = useState<string | null>(null);
+  const [trackRefs, setTrackRefs] = useState<TrackReferences>({
+    localTrackRef: null,
+    remoteTrackRef: null,
+  });
 
   // Call duration timer
   const [secondsElapsed, setSecondsElapsed] = useState(0);
@@ -76,6 +91,7 @@ export default function ActiveCallScreen() {
         setConnectionState(status);
         if (status === "connected") {
           setIsExpoGoMode(session.getState().isExpoGoSimulation);
+          setTrackRefs(session.getTrackRefs());
           // Start call duration timer
           if (!timerRef.current) {
             timerRef.current = setInterval(() => {
@@ -88,6 +104,9 @@ export default function ActiveCallScreen() {
             timerRef.current = null;
           }
         }
+      },
+      onTracksChanged: (refs) => {
+        setTrackRefs(refs);
       },
       onError: (err) => {
         console.warn("LiveKit session warning:", err);
@@ -226,18 +245,43 @@ export default function ActiveCallScreen() {
       <View style={styles.viewport}>
         {isVideoCall && !isCameraOff ? (
           <View style={styles.videoPlaceholder}>
-            <View style={styles.remoteVideoArea}>
-              <View style={styles.avatarBig}>
-                <Text style={styles.avatarBigText}>{peerName.charAt(0).toUpperCase()}</Text>
+            {NativeVideoTrack && trackRefs.remoteTrackRef ? (
+              <View style={styles.remoteVideoArea}>
+                <NativeVideoTrack
+                  trackRef={trackRefs.remoteTrackRef}
+                  objectFit="cover"
+                  style={StyleSheet.absoluteFill}
+                />
+                <View style={styles.videoNameBadge}>
+                  <Text style={styles.videoNameBadgeText}>{peerName}</Text>
+                </View>
               </View>
-              <Text style={styles.videoLabel}>{peerName}</Text>
-            </View>
+            ) : (
+              <View style={styles.remoteVideoArea}>
+                <View style={styles.avatarBig}>
+                  <Text style={styles.avatarBigText}>{peerName.charAt(0).toUpperCase()}</Text>
+                </View>
+                <Text style={styles.videoLabel}>{peerName}</Text>
+                {connectionState === "connected" && (
+                  <Text style={styles.videoSublabel}>Camera is active</Text>
+                )}
+              </View>
+            )}
 
             {/* Self Camera Inset */}
             <View style={styles.selfVideoInset}>
-              <Text style={styles.selfVideoText}>
-                {isFrontCamera ? "🤳 Front" : "📷 Back"}
-              </Text>
+              {NativeVideoTrack && trackRefs.localTrackRef && !isCameraOff ? (
+                <NativeVideoTrack
+                  trackRef={trackRefs.localTrackRef}
+                  mirror={isFrontCamera}
+                  objectFit="cover"
+                  style={StyleSheet.absoluteFill}
+                />
+              ) : (
+                <Text style={styles.selfVideoText}>
+                  {isFrontCamera ? "🤳 Front" : "📷 Back"}
+                </Text>
+              )}
             </View>
           </View>
         ) : (
@@ -405,7 +449,11 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   remoteVideoArea: {
+    width: "100%",
+    height: "100%",
     alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
   },
   selfVideoInset: {
     position: "absolute",
@@ -419,6 +467,28 @@ const styles = StyleSheet.create({
     borderColor: colors.blue,
     justifyContent: "center",
     alignItems: "center",
+    overflow: "hidden",
+    zIndex: 10,
+  },
+  videoNameBadge: {
+    position: "absolute",
+    bottom: 16,
+    left: 16,
+    backgroundColor: "rgba(0, 0, 0, 0.65)",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  videoNameBadgeText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: colors.white,
+  },
+  videoSublabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: "rgba(255, 255, 255, 0.7)",
+    marginTop: 6,
   },
   selfVideoText: {
     fontFamily: "Inter_500Medium",

@@ -1,4 +1,5 @@
 import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, radii } from "@/theme/tokens";
 
@@ -20,6 +21,8 @@ export function FamilyList({
   members: FamilyMember[];
   currentUserId?: string;
 }) {
+  const router = useRouter();
+
   return (
     <View style={styles.list}>
       {members.map((member) => {
@@ -32,33 +35,51 @@ export function FamilyList({
 
         return (
           <View key={member.id} style={styles.memberCard}>
-            <View
-              style={[
-                styles.avatarCircle,
-                isElderly ? styles.avatarCircleBlue : styles.avatarCircleGreen,
-              ]}
+            <Pressable
+              style={styles.memberMainTouch}
+              accessibilityRole="button"
+              accessibilityLabel={`View profile of ${name}`}
+              onPress={() => {
+                router.push({
+                  pathname: "/(caregiver)/member-detail",
+                  params: {
+                    memberId: member.id,
+                    userId: member.user_id,
+                    name,
+                    role: member.role,
+                    phone: phone || "",
+                  },
+                });
+              }}
             >
-              <Ionicons
-                name={isElderly ? "person" : "people"}
-                size={24}
-                color={isElderly ? colors.blue : colors.green}
-              />
-            </View>
-
-            <View style={styles.memberInfoCol}>
-              <View style={styles.nameRow}>
-                <Text style={styles.name}>{name}</Text>
-                {isSelf ? (
-                  <View style={styles.selfBadge}>
-                    <Text style={styles.selfBadgeText}>You</Text>
-                  </View>
-                ) : null}
+              <View
+                style={[
+                  styles.avatarCircle,
+                  isElderly ? styles.avatarCircleBlue : styles.avatarCircleGreen,
+                ]}
+              >
+                <Ionicons
+                  name={isElderly ? "person" : "people"}
+                  size={24}
+                  color={isElderly ? colors.blue : colors.green}
+                />
               </View>
-              <Text style={styles.role}>
-                {isElderly ? "Elderly User" : "Family Caregiver"}
-              </Text>
-              {phone ? <Text style={styles.phoneText}>{phone}</Text> : null}
-            </View>
+
+              <View style={styles.memberInfoCol}>
+                <View style={styles.nameRow}>
+                  <Text style={styles.name}>{name}</Text>
+                  {isSelf ? (
+                    <View style={styles.selfBadge}>
+                      <Text style={styles.selfBadgeText}>You</Text>
+                    </View>
+                  ) : null}
+                </View>
+                <Text style={styles.role}>
+                  {isElderly ? "Elderly User" : "Family Caregiver"}
+                </Text>
+                {phone ? <Text style={styles.phoneText}>{phone}</Text> : null}
+              </View>
+            </Pressable>
 
             {phone && !isSelf ? (
               <Pressable
@@ -98,6 +119,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.03,
     shadowRadius: 6,
     elevation: 1,
+  },
+  memberMainTouch: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    gap: 14,
   },
   avatarCircle: {
     width: 48,

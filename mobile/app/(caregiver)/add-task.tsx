@@ -28,6 +28,7 @@ export default function AddTask() {
   const [description, setDescription] = useState("");
   const [assignedTo, setAssignedTo] = useState("");
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   const elderly = members.data?.filter((m) => m.role === "elderly") ?? [];
 
@@ -55,12 +56,42 @@ export default function AddTask() {
         }),
       });
       await client.invalidateQueries({ queryKey: ["tasks", id] });
-      router.back();
+      setSaved(true);
     } catch {
       Alert.alert(t("taskNotSaved"), t("checkConnectionTryAgain"));
     } finally {
       setSaving(false);
     }
+  }
+
+  if (saved) {
+    return (
+      <Screen>
+        <View style={styles.successContainer}>
+          <View style={styles.successIconCircle}>
+            <Ionicons name="checkmark-circle" size={72} color={colors.green} />
+          </View>
+          <Text style={styles.successTitle}>Task Saved!</Text>
+          <Text style={styles.successSubtitle}>
+            "{title}" has been saved and assigned to your family member.
+          </Text>
+
+          <View style={styles.successActions}>
+            <ActionButton onPress={() => router.back()}>{t("done")}</ActionButton>
+            <ActionButton
+              variant="secondary"
+              onPress={() => {
+                setTitle("");
+                setDescription("");
+                setSaved(false);
+              }}
+            >
+              Add Another Task
+            </ActionButton>
+          </View>
+        </View>
+      </Screen>
+    );
   }
 
   return (
@@ -282,5 +313,39 @@ const styles = StyleSheet.create({
   },
   actionWrap: {
     marginTop: 8,
+  },
+  successContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 48,
+    paddingHorizontal: 20,
+    gap: 16,
+  },
+  successIconCircle: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    backgroundColor: colors.mint,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
+  },
+  successTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 26,
+    color: colors.ink,
+    textAlign: "center",
+  },
+  successSubtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 18,
+    color: colors.muted,
+    textAlign: "center",
+    lineHeight: 26,
+    marginBottom: 16,
+  },
+  successActions: {
+    width: "100%",
+    gap: 12,
   },
 });

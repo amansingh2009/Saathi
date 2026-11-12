@@ -86,11 +86,21 @@ class DeviceRegistration(BaseModel):
 
 class AIToolExecution(BaseModel):
     name: Literal[
-        "get_task_summary", "get_medicine_summary", "create_task",
+        "get_task_summary", "get_medicine_summary", "get_medicine_history", "create_task",
         "complete_task", "confirm_medicine_taken", "get_family_contacts",
     ]
     arguments: dict
     confirmed: bool = False
+
+
+class AIChatMessage(BaseModel):
+    role: Literal["user", "model"]
+    content: str = Field(min_length=1, max_length=4000)
+
+
+class AIChatRequest(BaseModel):
+    messages: list[AIChatMessage] = Field(min_length=1, max_length=24)
+    family_id: UUID | None = None
 
 
 class GuidanceImageAnalysis(BaseModel):

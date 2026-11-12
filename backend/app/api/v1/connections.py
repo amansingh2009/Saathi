@@ -192,7 +192,7 @@ async def send_connection_request(
     # Check for existing connection in either direction
     existing = await db.select(
         "senior_connections",
-        or_=f"and(requester_id.eq.{user_id},recipient_id.eq.{recipient_id}),and(requester_id.eq.{recipient_id},recipient_id.eq.{user_id})",
+        or_=f"(and(requester_id.eq.{user_id},recipient_id.eq.{recipient_id}),and(requester_id.eq.{recipient_id},recipient_id.eq.{user_id}))",
     )
 
     if existing:
@@ -289,7 +289,7 @@ async def block_user(
 
     existing = await db.select(
         "senior_connections",
-        or_=f"and(requester_id.eq.{user_id},recipient_id.eq.{target_id}),and(requester_id.eq.{target_id},recipient_id.eq.{user_id})",
+        or_=f"(and(requester_id.eq.{user_id},recipient_id.eq.{target_id}),and(requester_id.eq.{target_id},recipient_id.eq.{user_id}))",
     )
 
     if existing:

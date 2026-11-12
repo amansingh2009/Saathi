@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { StyleSheet, Text, View, Pressable } from "react-native";
-import { useRouter } from "expo-router";
+import { KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View, Pressable } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { fromByteArray, toByteArray } from "base64-js";
 import {
-  createAudioPlaylist,
+  createAudioPlayer,
   requestRecordingPermissionsAsync,
   setAudioModeAsync,
   useAudioStream,
@@ -21,6 +22,8 @@ import { screenCapture, screenCaptureEvents } from "@/services/screenCapture";
 import { buildLiveAudioInput, buildLiveScreenInput, formatLiveCaption, resamplePcm16ForGemini, shouldInterruptLocalPlayback } from "@/utils/geminiLive";
 
 type ToolCall = { id: string; name: string; args: Record<string, unknown> };
+type ChatMessage = { id: string; role: "user" | "model"; content: string };
+type BrowserCapture = { stream: MediaStream; timer: ReturnType<typeof setInterval> };
 
 const languageInstruction = {
   en: "Answer in simple English.",
@@ -30,24 +33,25 @@ const languageInstruction = {
 
 const liveTools = [{
   functionDeclarations: [
-    { name: "get_task_summary", behavior: "BLOCKING", description: "Read the family task list", parameters: { type: "OBJECT", properties: { family_id: { type: "STRING" } }, required: ["family_id"] } },
-    { name: "get_medicine_summary", behavior: "BLOCKING", description: "Read medicine schedule details", parameters: { type: "OBJECT", properties: { family_id: { type: "STRING" } }, required: ["family_id"] } },
-    { name: "get_family_contacts", behavior: "BLOCKING", description: "Read connected family contacts", parameters: { type: "OBJECT", properties: { family_id: { type: "STRING" } }, required: ["family_id"] } },
-    { name: "create_task", behavior: "BLOCKING", description: "Create a task after the user explicitly confirms", parameters: { type: "OBJECT", properties: { family_id: { type: "STRING" }, title: { type: "STRING" }, assigned_to: { type: "STRING" }, description: { type: "STRING" } }, required: ["family_id", "title", "assigned_to"] } },
-    { name: "complete_task", behavior: "BLOCKING", description: "Complete a task after explicit user confirmation", parameters: { type: "OBJECT", properties: { task_id: { type: "STRING" } }, required: ["task_id"] } },
-    { name: "confirm_medicine_taken", behavior: "BLOCKING", description: "Record a dose as taken only after explicit user confirmation", parameters: { type: "OBJECT", properties: { medicine_id: { type: "STRING" }, scheduled_for: { type: "STRING" } }, required: ["medicine_id"] } },
+    { name: "get_task_summary", description: "Read the family task list", parameters: { type: "OBJECT", properties: { family_id: { type: "STRING" } }, required: ["family_id"] } },
+    { name: "get_medicine_summary", description: "Read medicine schedule details", parameters: { type: "OBJECT", properties: { family_id: { type: "STRING" } }, required: ["family_id"] } },
+    { name: "get_medicine_history", description: "Read recorded medicine responses for a requested inclusive date range. Use YYYY-MM-DD dates and Asia/Kolkata timezone.", parameters: { type: "OBJECT", properties: { family_id: { type: "STRING" }, start_date: { type: "STRING" }, end_date: { type: "STRING" }, timezone: { type: "STRING" } }, required: ["family_id", "start_date", "end_date", "timezone"] } },
+    { name: "get_family_contacts", description: "Read connected family contacts", parameters: { type: "OBJECT", properties: { family_id: { type: "STRING" } }, required: ["family_id"] } },
+    { name: "create_task", description: "Create a task after the user explicitly confirms", parameters: { type: "OBJECT", properties: { family_id: { type: "STRING" }, title: { type: "STRING" }, assigned_to: { type: "STRING" }, description: { type: "STRING" } }, required: ["family_id", "title", "assigned_to"] } },
+    { name: "complete_task", description: "Complete a task after explicit user confirmation", parameters: { type: "OBJECT", properties: { task_id: { type: "STRING" } }, required: ["task_id"] } },
+    { name: "confirm_medicine_taken", description: "Record a dose as taken only after explicit user confirmation", parameters: { type: "OBJECT", properties: { medicine_id: { type: "STRING" }, scheduled_for: { type: "STRING" } }, required: ["medicine_id"] } },
   ],
 }];
 
-function toBase64(buffer: ArrayBuffer | ArrayBufferView) {
-  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array("buffer" in buffer ? buffer.buffer : buffer);
-  let binary = "";
-  for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
-  return btoa(binary);
+function toBase64(buffer: ArrayBuffer | ArrayBufferView): string {
+  const bytes = buffer instanceof Uint8Array
+    ? buffer
+    : new Uint8Array("buffer" in buffer ? buffer.buffer : buffer);
+  return fromByteArray(bytes);
 }
 
-function wavBase64(chunks: string[], sampleRate = 24000) {
-  const parts = chunks.map((chunk) => Uint8Array.from(atob(chunk), (character) => character.charCodeAt(0)));
+function wavBase64(chunks: string[], sampleRate = 24000): string {
+  const parts = chunks.map((chunk) => toByteArray(chunk));
   const dataLength = parts.reduce((sum, part) => sum + part.length, 0);
   const output = new Uint8Array(44 + dataLength);
   const view = new DataView(output.buffer);
@@ -60,18 +64,30 @@ function wavBase64(chunks: string[], sampleRate = 24000) {
   view.setUint16(32, 2, true); view.setUint16(34, 16, true); writeText(36, "data"); view.setUint32(40, dataLength, true);
   let offset = 44;
   for (const part of parts) { output.set(part, offset); offset += part.length; }
-  let binary = "";
-  for (let index = 0; index < output.length; index += 0x8000) binary += String.fromCharCode(...output.subarray(index, index + 0x8000));
-  return btoa(binary);
+  return fromByteArray(output);
 }
 
 async function extractMessageText(data: unknown): Promise<string> {
   if (typeof data === "string") return data;
-  if (data instanceof ArrayBuffer) {
-    return new TextDecoder().decode(data);
+  if (typeof TextDecoder !== "undefined") {
+    try {
+      if (data instanceof ArrayBuffer) {
+        return new TextDecoder("utf-8").decode(data);
+      }
+      if (ArrayBuffer.isView(data)) {
+        return new TextDecoder("utf-8").decode(data.buffer);
+      }
+    } catch {
+      // Fall through to manual decode
+    }
   }
-  if (ArrayBuffer.isView(data)) {
-    return new TextDecoder().decode(data.buffer);
+  if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
+    const bytes = data instanceof Uint8Array ? data : new Uint8Array("buffer" in data ? (data as any).buffer : data);
+    let result = "";
+    for (let i = 0; i < bytes.length; i += 1024) {
+      result += String.fromCharCode(...bytes.subarray(i, Math.min(i + 1024, bytes.length)));
+    }
+    return result;
   }
   if (data && typeof (data as { text?: () => Promise<string> }).text === "function") {
     return await (data as { text: () => Promise<string> }).text();
@@ -89,23 +105,28 @@ async function extractMessageText(data: unknown): Promise<string> {
 
 export default function Assistant() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ initialMode?: "text" | "voice" }>();
   const { t, language } = useI18n();
   const family = useFamilyContext();
   const socket = useRef<WebSocket | null>(null);
+  const browserCapture = useRef<BrowserCapture | null>(null);
   const streamStarted = useRef(false);
-  const stopRequested = useRef(false);
   const setupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const outputPlaylist = useRef<ReturnType<typeof createAudioPlaylist> | null>(null);
-  const playbackGeneration = useRef(0);
+  const audioChunks = useRef<string[]>([]);
+  const player = useRef<ReturnType<typeof createAudioPlayer> | null>(null);
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
-  const [assistantSpeaking, setAssistantSpeaking] = useState(false);
   const [message, setMessage] = useState("Tap start and speak naturally.");
   const [transcript, setTranscript] = useState("");
   const [liveCaption, setLiveCaption] = useState("");
   const [tool, setTool] = useState<ToolCall | null>(null);
   const [toolLabel, setToolLabel] = useState("");
   const [sharingScreen, setSharingScreen] = useState(false);
+  const [mode, setMode] = useState<"text" | "voice">(params.initialMode === "text" ? "text" : "voice");
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatDraft, setChatDraft] = useState("");
+  const [chatBusy, setChatBusy] = useState(false);
+  const [chatError, setChatError] = useState("");
   const screenShareStartedHere = useRef(false);
 
   const stream = useAudioStream({
@@ -119,17 +140,19 @@ export default function Assistant() {
     },
   });
 
-  const clearOutputAudio = useCallback(() => {
-    playbackGeneration.current += 1;
-    outputPlaylist.current?.pause();
-    outputPlaylist.current?.clear();
-    setAssistantSpeaking(false);
+  const stopBrowserCapture = useCallback(() => {
+    const current = browserCapture.current;
+    if (!current) return;
+    clearInterval(current.timer);
+    for (const track of current.stream.getTracks()) track.stop();
+    browserCapture.current = null;
   }, []);
 
   const stop = useCallback(() => {
-    stopRequested.current = true;
     try { stream.stream.stop(); } catch { /* stream may not have started */ }
-    clearOutputAudio();
+    audioChunks.current = [];
+    player.current?.pause();
+    if (player.current) void player.current.seekTo(0);
     if (setupTimer.current) clearTimeout(setupTimer.current);
     setupTimer.current = null;
     streamStarted.current = false;
@@ -139,16 +162,19 @@ export default function Assistant() {
       screenShareStartedHere.current = false;
       void screenCapture?.stop();
     }
+    stopBrowserCapture();
     setSharingScreen(false);
     setConnected(false); setConnecting(false); setTool(null); setToolLabel("");
     setMessage("Tap start and speak naturally.");
-  }, [clearOutputAudio, stream.stream]);
+  }, [stopBrowserCapture, stream.stream]);
 
-  useEffect(() => () => {
-    stop();
-    outputPlaylist.current?.destroy();
-    outputPlaylist.current = null;
-  }, [stop]);
+  function selectMode(nextMode: "text" | "voice") {
+    if (nextMode === mode) return;
+    if (connected || connecting) stop();
+    setMode(nextMode);
+  }
+
+  useEffect(() => () => { stop(); player.current?.release(); }, [stop]);
 
   useEffect(() => {
     if (!screenCaptureEvents) return;
@@ -173,19 +199,19 @@ export default function Assistant() {
         if (setupTimer.current) clearTimeout(setupTimer.current);
         setupTimer.current = null;
         await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: true, shouldPlayInBackground: false });
-        outputPlaylist.current?.destroy();
-        outputPlaylist.current = createAudioPlaylist({ sources: [], loop: "none", updateInterval: 100 });
-        outputPlaylist.current.addListener("playlistStatusUpdate", (status) => setAssistantSpeaking(status.playing));
         await stream.stream.start();
         setConnected(true); setConnecting(false); setMessage("I’m listening. You can stop whenever you like.");
       }
       const server = data.serverContent;
       if (server?.interrupted) {
-        clearOutputAudio();
+        audioChunks.current = [];
+        player.current?.pause();
+        if (player.current) void player.current.seekTo(0);
         setMessage(t("listening"));
       }
-      if (shouldInterruptLocalPlayback(server, outputPlaylist.current?.playing === true)) {
-        clearOutputAudio();
+      if (shouldInterruptLocalPlayback(server, player.current?.playing === true)) {
+        player.current?.pause();
+        if (player.current) void player.current.seekTo(0);
       }
       const interimInput = server?.interimInputTranscription?.text;
       if (interimInput) setLiveCaption(formatLiveCaption("You", interimInput));
@@ -199,27 +225,18 @@ export default function Assistant() {
         setTranscript((old) => `${old}\n${formatLiveCaption("Saathi", text)}`.trim());
         setLiveCaption(formatLiveCaption("Saathi", text));
       }
-      const responseAudio: string[] = [];
       for (const part of server?.modelTurn?.parts ?? []) {
-        if (part.inlineData?.mimeType?.startsWith("audio/pcm")) responseAudio.push(part.inlineData.data);
+        if (part.inlineData?.mimeType?.startsWith("audio/pcm")) audioChunks.current.push(part.inlineData.data);
         if (part.text) setMessage(part.text);
       }
-      if (responseAudio.length) {
-        const generation = playbackGeneration.current;
-        const audio = wavBase64(responseAudio);
+      if (server?.turnComplete && audioChunks.current.length) {
+        const audio = wavBase64(audioChunks.current);
+        audioChunks.current = [];
         const uri = `${FileSystem.cacheDirectory}saathi-response-${Date.now()}.wav`;
         await FileSystem.writeAsStringAsync(uri, audio, { encoding: FileSystem.EncodingType.Base64 });
-        if (generation !== playbackGeneration.current) {
-          void FileSystem.deleteAsync(uri, { idempotent: true });
-          return;
-        }
-        const playlist = outputPlaylist.current;
-        if (playlist) {
-          playlist.add(uri);
-          playlist.play();
-          setAssistantSpeaking(true);
-          setTimeout(() => { void FileSystem.deleteAsync(uri, { idempotent: true }); }, 120_000);
-        }
+        player.current?.release();
+        player.current = createAudioPlayer(uri);
+        player.current.play();
       }
 
       const call = data.toolCall?.functionCalls?.[0];
@@ -245,54 +262,67 @@ export default function Assistant() {
     } catch {
       setMessage("I couldn’t understand that response. Please try again.");
     }
-  }, [clearOutputAudio, stream.stream, t]);
+  }, [stream.stream, t]);
 
   const begin = useCallback(async () => {
-    stopRequested.current = false;
-    setConnecting(true); streamStarted.current = false; setTranscript(""); setLiveCaption(""); setMessage("Connecting securely…");
+    setConnecting(true); streamStarted.current = false; audioChunks.current = []; setTranscript(""); setLiveCaption(""); setMessage("Connecting securely…");
     try {
       const familyContext = family.data;
-      if (!familyContext) throw new Error("Connect Saathi to your family before starting a conversation.");
+      const familyId = familyContext?.family?.id;
+      const memberId = familyContext?.membership?.user_id;
+
+      const familyPromptSnippet = familyId && memberId
+        ? ` The active family_id is ${familyId}; the signed-in user's id is ${memberId}. Use these when reading or creating tasks. Only assign tasks to the signed-in user unless the user identifies a known family member.`
+        : ` The user is not yet connected to a family group. If the user asks about family tasks or medicines, kindly explain that a family group has not been connected yet, and guide them to connect with their family from the Home screen. You can still converse warmly, tell stories, discuss devotional or spiritual topics, and answer everyday questions.`;
+
       const permission = await requestRecordingPermissionsAsync();
       if (!permission.granted) throw new Error("Allow microphone access to talk with Saathi.");
       const token = await api<{ token: string; model: string }>("/ai/live-token", { method: "POST" });
+      const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
       const ws = new WebSocket(`wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained?access_token=${encodeURIComponent(token.token)}`);
       ws.binaryType = "arraybuffer";
       socket.current = ws;
       ws.onopen = () => {
-        ws.send(JSON.stringify({ setup: {
-          model: `models/${token.model}`,
-          generationConfig: { responseModalities: ["AUDIO"] },
-          inputAudioTranscription: {},
-          outputAudioTranscription: {},
-          realtimeInputConfig: { activityHandling: "START_OF_ACTIVITY_INTERRUPTS" },
-          systemInstruction: { parts: [{ text: `You are Saathi, a kind voice companion for older adults. When the user explicitly starts screen sharing, inspect the incoming screen images and give one calm, short step at a time. The screen may contain private information; discuss only what helps with the user's request and never repeat secrets, OTPs, PINs, passwords, or banking credentials. ${languageInstruction[language]} The active family_id is ${familyContext.family.id}; the signed-in user's id is ${familyContext.membership.user_id}. Use these when reading or creating tasks. Only assign tasks to the signed-in user unless the user identifies a known family member. Call one tool at a time. Give one short instruction at a time. Never ask for passwords, OTPs, PINs or banking credentials. Never change medicine dosage. Ask before changing data. ${languageInstruction[language]}` }] },
-          tools: liveTools,
-        } }));
+        ws.send(JSON.stringify({
+          setup: {
+            model: `models/${token.model}`,
+            generationConfig: { responseModalities: ["AUDIO"] },
+            inputAudioTranscription: {},
+            outputAudioTranscription: {},
+            realtimeInputConfig: { activityHandling: "START_OF_ACTIVITY_INTERRUPTS" },
+            systemInstruction: { parts: [{ text: `You are Saathi, a kind voice companion for older adults. Today is ${today} in Asia/Kolkata. When the user explicitly starts screen sharing, inspect incoming screen images and give one calm, short step at a time. The screen may contain private information; discuss only what helps with the user's request and never repeat secrets, OTPs, PINs, passwords, or banking credentials. ${languageInstruction[language]}${familyPromptSnippet} If asked about tasks, use get_task_summary. If asked about a medicine schedule, use get_medicine_summary. If asked which medicines the user took or skipped, determine the requested dates, ask a brief follow-up if the range is unclear, then use get_medicine_history with inclusive YYYY-MM-DD dates and Asia/Kolkata timezone. Report only recorded results; never infer that an unrecorded dose was taken. Call one tool at a time. Give one short instruction at a time. Never ask for passwords, OTPs, PINs or banking credentials. Never change medicine dosage. Ask before changing data. ${languageInstruction[language]}` }] },
+            tools: liveTools,
+          }
+        }));
         setupTimer.current = setTimeout(() => {
-          if (!streamStarted.current) { stopRequested.current = true; setConnecting(false); setMessage("The voice service did not respond. Please try again."); socket.current?.close(); }
+          if (!streamStarted.current) { setConnecting(false); setMessage("The voice service did not respond. Please try again."); socket.current?.close(); }
         }, 12000);
       };
       ws.onmessage = (event) => { void handleServerMessage(event); };
       ws.onerror = () => {
         try { stream.stream.stop(); } catch { /* already stopped */ }
-        clearOutputAudio();
+        audioChunks.current = [];
+        player.current?.pause();
+        if (player.current) void player.current.seekTo(0);
         if (screenShareStartedHere.current) { screenShareStartedHere.current = false; void screenCapture?.stop(); }
+        stopBrowserCapture();
         setSharingScreen(false); setMessage("Connection interrupted. Please try again."); setConnected(false); setConnecting(false);
       };
       ws.onclose = () => {
         try { stream.stream.stop(); } catch { /* already stopped */ }
-        clearOutputAudio();
+        audioChunks.current = [];
+        player.current?.pause();
+        if (player.current) void player.current.seekTo(0);
         if (screenShareStartedHere.current) { screenShareStartedHere.current = false; void screenCapture?.stop(); }
+        stopBrowserCapture();
         setSharingScreen(false);
         if (setupTimer.current) clearTimeout(setupTimer.current);
         setupTimer.current = null; streamStarted.current = false; setConnected(false); setConnecting(false);
-        if (!stopRequested.current) setMessage("The voice connection ended. Tap Start talking to try again.");
       };
     } catch (error) {
       setConnecting(false); setMessage(error instanceof Error ? error.message : "Voice assistant is unavailable right now.");
     }
-  }, [clearOutputAudio, family.data, handleServerMessage, language, stream.stream]);
+  }, [family.data, handleServerMessage, language, stopBrowserCapture, stream.stream]);
 
   async function respondToTool(confirmed: boolean) {
     if (!tool || !socket.current) return;
@@ -317,16 +347,95 @@ export default function Assistant() {
     }
   }
 
-  async function toggleScreenSharing() {
-    if (!screenCapture || !screenCaptureEvents) {
-      setMessage("Screen sharing with Saathi is available in the Android app.");
+  async function sendTextMessage(text = chatDraft) {
+    const content = text.trim();
+    if (!content || chatBusy) return;
+    const userMessage: ChatMessage = { id: `${Date.now()}-user`, role: "user", content };
+    const nextMessages = [...chatMessages, userMessage].slice(-24);
+    setChatMessages(nextMessages);
+    setChatDraft("");
+    setChatError("");
+    setChatBusy(true);
+    try {
+      const result = await api<{ reply: string }>("/ai/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          family_id: family.data?.family.id ?? null,
+          messages: nextMessages.map(({ role, content: messageContent }) => ({ role, content: messageContent })),
+        }),
+      });
+      setChatMessages((current) => [...current, { id: `${Date.now()}-model`, role: "model" as const, content: result.reply }].slice(-24));
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : "Saathi couldn’t reply. Please try again.");
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
+  async function startBrowserScreenSharing() {
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      setMessage("Screen sharing isn’t supported by this browser. Try the Saathi Android app.");
       return;
     }
+    let captureStream: MediaStream | null = null;
+    try {
+      captureStream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: { ideal: 1, max: 1 } },
+        audio: false,
+      });
+      const track = captureStream.getVideoTracks()[0];
+      const settings = track?.getSettings();
+      const sourceWidth = settings?.width ?? 1280;
+      const sourceHeight = settings?.height ?? 720;
+      const scale = Math.min(1, 1280 / sourceWidth, 720 / sourceHeight);
+      const video = document.createElement("video");
+      video.muted = true;
+      video.playsInline = true;
+      video.srcObject = captureStream;
+      await video.play();
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+      canvas.height = Math.max(1, Math.round(sourceHeight * scale));
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("Screen capture is not available in this browser.");
+      const timer = setInterval(() => {
+        if (socket.current?.readyState !== WebSocket.OPEN || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const jpegBase64 = canvas.toDataURL("image/jpeg", 0.65).split(",")[1];
+        if (jpegBase64) socket.current.send(JSON.stringify(buildLiveScreenInput(jpegBase64)));
+      }, 1000);
+      browserCapture.current = { stream: captureStream, timer };
+      track.onended = () => {
+        stopBrowserCapture();
+        setSharingScreen(false);
+        setMessage(t("screenSharingStopped"));
+      };
+      setSharingScreen(true);
+      setMessage(t("screenSharingStarted"));
+    } catch (error) {
+      for (const track of captureStream?.getTracks() ?? []) track.stop();
+      setMessage(error instanceof Error ? error.message : "Screen sharing wasn’t started. Your screen was not sent to Saathi.");
+    }
+  }
+
+  async function toggleScreenSharing() {
     if (sharingScreen) {
-      screenShareStartedHere.current = false;
-      await screenCapture.stop();
+      if (Platform.OS === "web") {
+        stopBrowserCapture();
+      } else if (screenCapture) {
+        screenShareStartedHere.current = false;
+        await screenCapture.stop();
+      }
       setSharingScreen(false);
       setMessage(t("screenSharingStopped"));
+      return;
+    }
+    if (Platform.OS === "web") {
+      await startBrowserScreenSharing();
+      return;
+    }
+    if (!screenCapture || !screenCaptureEvents) {
+      setMessage("Screen sharing is not available on this device.");
       return;
     }
     try {
@@ -364,10 +473,68 @@ export default function Assistant() {
 
       {/* Main Heading */}
       <View style={styles.header}>
-        <Text style={styles.title}>{t("howCanIHelp")}</Text>
-        <Text style={styles.subtitle}>{t("speakNaturally")}</Text>
+        <Text style={styles.title}>{t("talkToSaathi")}</Text>
+        <Text style={styles.subtitle}>{t("companionSubtitle")}</Text>
       </View>
 
+      <View style={styles.modePicker}>
+        <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === "text" }} onPress={() => selectMode("text")} style={[styles.modeButton, mode === "text" && styles.modeButtonActive]}>
+          <Ionicons name="chatbubble-ellipses-outline" size={20} color={mode === "text" ? colors.white : colors.blue} />
+          <Text style={[styles.modeButtonLabel, mode === "text" && styles.modeButtonLabelActive]}>{t("textMode")}</Text>
+        </Pressable>
+        <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === "voice" }} onPress={() => selectMode("voice")} style={[styles.modeButton, mode === "voice" && styles.modeButtonActive]}>
+          <Ionicons name="mic-outline" size={20} color={mode === "voice" ? colors.white : colors.blue} />
+          <Text style={[styles.modeButtonLabel, mode === "voice" && styles.modeButtonLabelActive]}>{t("voiceMode")}</Text>
+        </Pressable>
+      </View>
+
+      {mode === "text" ? (
+        <>
+          <Panel variant="pale" style={styles.chatWelcomePanel}>
+            <Ionicons name="sparkles" size={22} color={colors.blue} />
+            <Text style={styles.chatWelcomeText}>{t("chatWelcome")}</Text>
+          </Panel>
+          <View style={styles.chatMessages}>
+            {chatMessages.length === 0 ? (
+              <View style={styles.quickPrompts}>
+                <Text style={styles.suggestionsHeader}>{t("trySaying")}</Text>
+                {[t("suggestionTasks"), t("suggestionMed")].map((prompt) => (
+                  <Pressable key={prompt} accessibilityRole="button" style={styles.quickPrompt} onPress={() => void sendTextMessage(prompt)}>
+                    <Text style={styles.quickPromptText}>{prompt}</Text>
+                    <Ionicons name="arrow-up-circle" size={24} color={colors.blue} />
+                  </Pressable>
+                ))}
+              </View>
+            ) : chatMessages.map((item) => (
+              <View key={item.id} style={[styles.chatBubble, item.role === "user" ? styles.userBubble : styles.assistantBubble]}>
+                {item.role === "model" ? <Text style={styles.assistantName}>Saathi</Text> : null}
+                <Text style={[styles.chatBubbleText, item.role === "user" && styles.userBubbleText]}>{item.content}</Text>
+              </View>
+            ))}
+            {chatBusy ? <Text style={styles.chatThinking}>{t("chatThinking")}</Text> : null}
+            {chatError ? <Text accessibilityRole="alert" style={styles.chatError}>{chatError}</Text> : null}
+          </View>
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
+            <View style={styles.chatComposer}>
+              <TextInput
+                accessibilityLabel={t("textChatPlaceholder")}
+                value={chatDraft}
+                onChangeText={setChatDraft}
+                onSubmitEditing={() => void sendTextMessage()}
+                placeholder={t("textChatPlaceholder")}
+                placeholderTextColor={colors.muted}
+                returnKeyType="send"
+                style={styles.chatInput}
+                editable={!chatBusy}
+              />
+              <Pressable accessibilityRole="button" accessibilityLabel={t("sendMessage")} disabled={!chatDraft.trim() || chatBusy} onPress={() => void sendTextMessage()} style={[styles.sendButton, (!chatDraft.trim() || chatBusy) && styles.sendButtonDisabled]}>
+                {chatBusy ? <Ionicons name="time-outline" size={23} color={colors.white} /> : <Ionicons name="send" size={21} color={colors.white} />}
+              </Pressable>
+            </View>
+          </KeyboardAvoidingView>
+        </>
+      ) : (
+        <>
       {/* Central Visual Voice Pulse Area */}
       <View style={styles.pulseCard}>
         <Pressable
@@ -403,8 +570,8 @@ export default function Assistant() {
           {connecting
             ? t("connectingSecurely")
             : connected
-            ? assistantSpeaking ? t("speaking") : t("listening")
-            : t("tapToSpeak")}
+              ? t("listening")
+              : t("tapToSpeak")}
         </Text>
         <Text style={styles.messageText}>{message}</Text>
       </View>
@@ -473,12 +640,12 @@ export default function Assistant() {
           </ActionButton>
         ) : (
           <>
-          <ActionButton variant={sharingScreen ? "danger" : "secondary"} onPress={() => void toggleScreenSharing()}>
-            {sharingScreen ? t("stopShareScreen") : t("shareScreen")}
-          </ActionButton>
-          <ActionButton variant="danger" onPress={stop}>
-            {t("stopListening")}
-          </ActionButton>
+            <ActionButton variant={sharingScreen ? "danger" : "secondary"} onPress={() => void toggleScreenSharing()}>
+              {sharingScreen ? t("stopShareScreen") : t("shareScreen")}
+            </ActionButton>
+            <ActionButton variant="danger" onPress={stop}>
+              {t("stopListening")}
+            </ActionButton>
           </>
         )}
         <Text style={styles.privacyNote}>
@@ -487,6 +654,8 @@ export default function Assistant() {
             : t("voicePrivacy")}
         </Text>
       </View>
+        </>
+      )}
     </Screen>
   );
 }
@@ -538,6 +707,149 @@ const styles = StyleSheet.create({
     fontSize: 18,
     lineHeight: 26,
     color: colors.muted,
+  },
+  modePicker: {
+    flexDirection: "row",
+    gap: 10,
+    backgroundColor: colors.white,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 6,
+  },
+  modeButton: {
+    flex: 1,
+    minHeight: 54,
+    borderRadius: 13,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingHorizontal: 8,
+  },
+  modeButtonActive: {
+    backgroundColor: colors.blue,
+  },
+  modeButtonLabel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 16,
+    color: colors.blue,
+  },
+  modeButtonLabelActive: {
+    color: colors.white,
+  },
+  chatWelcomePanel: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  chatWelcomeText: {
+    flex: 1,
+    fontFamily: "Inter_500Medium",
+    fontSize: 17,
+    lineHeight: 24,
+    color: colors.ink,
+  },
+  chatMessages: {
+    gap: 12,
+    minHeight: 160,
+  },
+  quickPrompts: {
+    gap: 10,
+    paddingTop: 4,
+  },
+  quickPrompt: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: colors.white,
+  },
+  quickPromptText: {
+    flex: 1,
+    fontFamily: "Inter_500Medium",
+    fontSize: 16,
+    lineHeight: 22,
+    color: colors.ink,
+  },
+  chatBubble: {
+    maxWidth: "88%",
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 4,
+  },
+  userBubble: {
+    alignSelf: "flex-end",
+    backgroundColor: colors.blue,
+    borderBottomRightRadius: 5,
+  },
+  assistantBubble: {
+    alignSelf: "flex-start",
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderBottomLeftRadius: 5,
+  },
+  assistantName: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: colors.blue,
+  },
+  chatBubbleText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 17,
+    lineHeight: 25,
+    color: colors.ink,
+  },
+  userBubbleText: {
+    color: colors.white,
+  },
+  chatThinking: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 16,
+    color: colors.muted,
+    paddingHorizontal: 8,
+  },
+  chatError: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 16,
+    lineHeight: 22,
+    color: colors.red,
+  },
+  chatComposer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 8,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 20,
+  },
+  chatInput: {
+    flex: 1,
+    minHeight: 54,
+    paddingHorizontal: 12,
+    color: colors.ink,
+    fontFamily: "Inter_400Regular",
+    fontSize: 18,
+  },
+  sendButton: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.blue,
+  },
+  sendButtonDisabled: {
+    opacity: 0.45,
   },
   pulseCard: {
     backgroundColor: colors.white,

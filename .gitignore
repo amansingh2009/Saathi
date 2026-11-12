@@ -18,3 +18,4 @@ venv/
 *.jks
 *.keystore
 
+supabase/.temp/

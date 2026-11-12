@@ -112,6 +112,28 @@ export default function Dashboard() {
     );
   }
 
+  if (!family.data) {
+    return (
+      <Screen>
+        <View style={styles.topBar}>
+          <Text style={styles.brandTitle}>{t("familyDashboard")}</Text>
+        </View>
+        <View style={styles.welcomeCard}>
+          <Text style={styles.welcomeTitle}>Connect with your family</Text>
+          <Text style={styles.welcomeSubtitle}>
+            Create or join a family group to start caring for your senior family members.
+          </Text>
+          <ActionButton onPress={() => router.push("/(auth)/family-setup")}>
+            Create family
+          </ActionButton>
+          <ActionButton variant="secondary" onPress={() => router.push("/(auth)/join-family")}>
+            Join existing family
+          </ActionButton>
+        </View>
+      </Screen>
+    );
+  }
+
   const activeAlerts = alerts.data?.filter((event) => event.status !== "resolved") ?? [];
   const elderlyMember = members.data?.find((m) => m.role === "elderly");
   const caregiverMember = members.data?.find((m) => m.role === "caregiver");
@@ -257,14 +279,14 @@ export default function Dashboard() {
         </Pressable>
       </View>
 
-      {/* 7. Remote Guidance Banner */}
+      {/* 7. Talk with Saathi */}
       <Pressable
         accessibilityRole="button"
-        onPress={() => router.push("/(caregiver)/guidance-monitor")}
+        onPress={() => router.push("/(elderly)/assistant")}
         style={styles.guideBanner}
       >
-        <Ionicons name="phone-portrait-outline" size={22} color={colors.blue} />
-        <Text style={styles.guideBannerText}>{t("guideRemotely")}</Text>
+        <Ionicons name="chatbubbles-outline" size={22} color={colors.blue} />
+        <Text style={styles.guideBannerText}>{t("talkToSaathi")}</Text>
       </Pressable>
 
       {/* 8. Senior Connect (Video & Audio Calling) */}
@@ -635,5 +657,24 @@ const styles = StyleSheet.create({
   pressedState: {
     transform: [{ scale: 0.98 }],
     opacity: 0.94,
+  },
+  welcomeCard: {
+    backgroundColor: colors.white,
+    borderRadius: radii.cardMin,
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 24,
+    gap: 16,
+    marginVertical: 24,
+  },
+  welcomeTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 22,
+    color: colors.ink,
+  },
+  welcomeSubtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 16,
+    color: colors.muted,
   },
 });

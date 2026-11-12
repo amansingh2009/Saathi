@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import * as SecureStore from "expo-secure-store";
@@ -10,9 +11,18 @@ type PreferencesState = {
 };
 
 const storage = {
-  getItem: (key: string) => SecureStore.getItemAsync(key),
-  setItem: (key: string, value: string) => SecureStore.setItemAsync(key, value),
-  removeItem: (key: string) => SecureStore.deleteItemAsync(key),
+  getItem: (key: string) =>
+    Platform.OS === "web"
+      ? Promise.resolve(typeof localStorage !== "undefined" ? localStorage.getItem(key) : null)
+      : SecureStore.getItemAsync(key),
+  setItem: (key: string, value: string) =>
+    Platform.OS === "web"
+      ? Promise.resolve(typeof localStorage !== "undefined" ? localStorage.setItem(key, value) : undefined)
+      : SecureStore.setItemAsync(key, value),
+  removeItem: (key: string) =>
+    Platform.OS === "web"
+      ? Promise.resolve(typeof localStorage !== "undefined" ? localStorage.removeItem(key) : undefined)
+      : SecureStore.deleteItemAsync(key),
 };
 
 export const usePreferences = create<PreferencesState>()(persist((set) => ({

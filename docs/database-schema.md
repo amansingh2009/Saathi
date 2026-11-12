@@ -16,6 +16,9 @@ The live Supabase project has the following public tables, all with RLS enabled:
 12. `emergency_events`
 13. `device_tokens`
 14. `notification_logs`
+15. `senior_connections`
+16. `calls`
+17. `senior_reports`
 
 Roles belong to `family_members`, so one person can be an elder in one family and a caregiver in another. Foreign keys, unique family membership, composite family relationships, state constraints, and indexes protect the data shape.
 
@@ -35,5 +38,7 @@ Private guidance topics use `realtime.messages` policies keyed to an active `scr
 - `20261112143854_elder_self_assigned_tasks.sql` permits an elder to add a task for themselves while preventing assignment to another member.
 - `20261112144547_guidance_end_room_access.sql` keeps the participant-only private channel open long enough for the elder client to receive a caregiver stop action; ended sessions cannot publish frames.
 - `20261112145440_remaining_foreign_key_indexes.sql` adds covering indexes for the last two family foreign keys found by the Supabase advisor.
+- `20261113_senior_connect.sql` creates `calls`, `senior_connections`, and `senior_reports`, adds bio, interests, and avatar fields to `profiles`, and adds `calls` to Realtime.
+- `20261113_storage_avatars.sql` adds authenticated user storage RLS policies for private user avatars.
 
 The hosted project has these migrations applied. No demo seed data is installed.

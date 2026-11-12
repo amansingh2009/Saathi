@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, StyleSheet, Text, View, Pressable } from "react-native";
+import { Alert, Image, StyleSheet, Text, View, Pressable } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { ActionButton } from "@/components/ActionButton";
@@ -10,6 +10,7 @@ import { supabase } from "@/services/supabase";
 import { useActiveFamily } from "@/store/activeFamily";
 import type { Language } from "@/store/preferences";
 import { useI18n } from "@/hooks/useI18n";
+import { resolveAvatarUrl } from "@/services/avatarStorage";
 import { colors, radii } from "@/theme/tokens";
 
 export function ProfileSettings() {
@@ -18,16 +19,18 @@ export function ProfileSettings() {
   const setFamily = useActiveFamily((s) => s.setFamilyId);
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const { t, language, setLanguage } = useI18n();
 
   useEffect(() => {
     void supabase.auth.getUser().then(({ data }) => {
       setEmail(data.user?.email ?? "");
     });
-    void api<{ preferred_language?: Language; full_name?: string }>("/profiles/me")
+    void api<{ preferred_language?: Language; full_name?: string; avatar_url?: string }>("/profiles/me")
       .then((profile) => {
         if (profile.preferred_language) setLanguage(profile.preferred_language);
         if (profile.full_name) setFullName(profile.full_name);
+        if (profile.avatar_url) void resolveAvatarUrl(profile.avatar_url).then(setAvatarUri);
       })
       .catch(() => undefined);
   }, [setLanguage]);
@@ -68,11 +71,15 @@ export function ProfileSettings() {
       {/* Profile Card */}
       <View style={styles.profileCard}>
         <View style={styles.avatarCircle}>
-          <Ionicons
-            name={isElderly ? "person" : "shield-checkmark"}
-            size={36}
-            color={colors.blue}
-          />
+          {avatarUri ? (
+            <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+          ) : (
+            <Ionicons
+              name={isElderly ? "person" : "shield-checkmark"}
+              size={36}
+              color={colors.blue}
+            />
+          )}
         </View>
         <View style={styles.profileTextCol}>
           <Text style={styles.displayName}>{fullName || (isElderly ? t("seniorMember") : t("familyCaregiver"))}</Text>
@@ -229,6 +236,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.pale,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+  },
+  avatarImage: {
+    width: "100%",
+    height: "100%",
   },
   profileTextCol: {
     flex: 1,

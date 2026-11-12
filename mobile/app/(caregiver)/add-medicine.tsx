@@ -30,6 +30,7 @@ export default function AddMedicine() {
   const [time, setTime] = useState("09:00");
   const [person, setPerson] = useState("");
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   const elderly = members.data?.filter((m) => m.role === "elderly") ?? [];
 
@@ -66,12 +67,44 @@ export default function AddMedicine() {
         }),
       });
       await client.invalidateQueries({ queryKey: ["medicines", id] });
-      router.back();
+      setSaved(true);
     } catch {
       Alert.alert(t("medNotSaved"), t("medNotSavedDesc"));
     } finally {
       setSaving(false);
     }
+  }
+
+  if (saved) {
+    return (
+      <Screen>
+        <View style={styles.successContainer}>
+          <View style={styles.successIconCircle}>
+            <Ionicons name="checkmark-circle" size={72} color={colors.green} />
+          </View>
+          <Text style={styles.successTitle}>Medicine Saved!</Text>
+          <Text style={styles.successSubtitle}>
+            "{name}" ({dosage || "daily"}) at {time} has been added to daily reminders.
+          </Text>
+
+          <View style={styles.successActions}>
+            <ActionButton onPress={() => router.back()}>{t("done")}</ActionButton>
+            <ActionButton
+              variant="secondary"
+              onPress={() => {
+                setName("");
+                setDosage("");
+                setInstructions("");
+                setTime("09:00");
+                setSaved(false);
+              }}
+            >
+              Add Another Medicine
+            </ActionButton>
+          </View>
+        </View>
+      </Screen>
+    );
   }
 
   return (
@@ -334,5 +367,39 @@ const styles = StyleSheet.create({
   },
   actionWrap: {
     marginTop: 8,
+  },
+  successContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 48,
+    paddingHorizontal: 20,
+    gap: 16,
+  },
+  successIconCircle: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    backgroundColor: colors.mint,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
+  },
+  successTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 26,
+    color: colors.ink,
+    textAlign: "center",
+  },
+  successSubtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 18,
+    color: colors.muted,
+    textAlign: "center",
+    lineHeight: 26,
+    marginBottom: 16,
+  },
+  successActions: {
+    width: "100%",
+    gap: 12,
   },
 });
