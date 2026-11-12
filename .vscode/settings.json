@@ -1,0 +1,8 @@
+{
+  "python.envFile": "${workspaceFolder}/backend/.env",
+  "python.terminal.useEnvFile": true,
+  "python.defaultInterpreterPath": "${workspaceFolder}/backend/.venv/bin/python",
+  "terminal.integrated.env.osx": {
+    "PYTHONPATH": "${workspaceFolder}/backend"
+  }
+}

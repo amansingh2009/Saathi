@@ -98,3 +98,43 @@ class GuidanceImageAnalysis(BaseModel):
     image_base64: str = Field(min_length=100, max_length=2_000_000)
     question: str = Field(min_length=3, max_length=300)
 
+
+class SeniorProfileUpdate(BaseModel):
+    full_name: str | None = Field(default=None, max_length=120)
+    interests: list[str] | None = None
+    bio: str | None = Field(default=None, max_length=500)
+    avatar_url: str | None = Field(default=None, max_length=2048)
+    is_discoverable: bool | None = None
+    preferred_language: Literal["en", "hi", "ta"] | None = None
+
+
+class ConnectionRequestCreate(BaseModel):
+    recipient_id: UUID
+
+
+class BlockRequest(BaseModel):
+    user_id: UUID
+
+
+class ReportRequest(BaseModel):
+    user_id: UUID
+    reason: str = Field(min_length=3, max_length=1000)
+
+
+class CallCreate(BaseModel):
+    receiver_id: UUID
+    call_type: Literal["audio", "video"]
+
+
+class InstantCallCreate(BaseModel):
+    room_name: str | None = None
+    call_type: Literal["audio", "video"] = "video"
+
+
+class CallTokenResponse(BaseModel):
+    token: str
+    room_name: str
+    livekit_url: str
+    call_id: UUID
+
+

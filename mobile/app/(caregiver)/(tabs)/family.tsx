@@ -12,9 +12,11 @@ import { colors } from "@/theme/tokens";
 import { useState } from "react";
 import { Alert, Share, TextInput } from "react-native";
 import { ActionButton } from "@/components/ActionButton";
+import { useI18n } from "@/hooks/useI18n";
 
 export default function Family() {
   const family = useFamilyContext();
+  const { t } = useI18n();
   const [email, setEmail] = useState("");
   const [inviting, setInviting] = useState(false);
   const [lastInvite, setLastInvite] = useState<{ token: string; role: "elderly" | "caregiver" } | null>(null);
@@ -24,22 +26,22 @@ export default function Family() {
   if (family.isLoading || members.isLoading) return <Screen><LoadingState /></Screen>;
   if (family.error || members.error) return <Screen><ProblemState message="Family contacts couldn’t be loaded." retry={() => void members.refetch()} /></Screen>;
 
-  return <Screen><Heading title="Your family" subtitle={family.data?.family.name} />
+  return <Screen><Heading title={t("yourFamily")} subtitle={family.data?.family.name} />
     <TextInput accessibilityLabel="Invitation email (optional)" keyboardType="email-address" autoCapitalize="none" placeholder="Email (optional)" value={email} onChangeText={setEmail} style={styles.input} />
-    <ActionButton loading={inviting} onPress={()=>void invite("elderly")}>Invite a family member</ActionButton>
-    <ActionButton variant="secondary" loading={inviting} onPress={()=>void invite("caregiver")}>Invite another caregiver</ActionButton>
+    <ActionButton loading={inviting} onPress={()=>void invite("elderly")}>{t("inviteFamilyMember")}</ActionButton>
+    <ActionButton variant="secondary" loading={inviting} onPress={()=>void invite("caregiver")}>{t("inviteCaregiver")}</ActionButton>
 
     {lastInvite ? (
       <Panel>
-        <Text style={styles.inviteTitle}>Invitation Code Generated</Text>
+        <Text style={styles.inviteTitle}>{t("inviteCodeGenerated")}</Text>
         <Text style={styles.inviteSubtitle}>
-          Share this code with your {lastInvite.role === "elderly" ? "family member" : "caregiver"}. They can enter it under "Join family" in the app.
+          {t("inviteShareDesc", { role: lastInvite.role === "elderly" ? t("elderly") : t("caregiver") })}
         </Text>
         <View style={styles.codeContainer}>
           <Text selectable style={styles.codeText}>{lastInvite.token}</Text>
         </View>
         <ActionButton variant="secondary" onPress={() => void Share.share({ message: `Join my family on Saathi. Your invitation code is:\n\n${lastInvite.token}\n\nIt expires in 72 hours. Sign in to Saathi and choose Join family.` })}>
-          Share invitation code
+          {t("shareInviteCode")}
         </ActionButton>
       </Panel>
     ) : null}

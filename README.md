@@ -35,6 +35,16 @@ FastAPI docs are available at `http://localhost:8000/docs`.
 
 The Saathi project was created in Mumbai (`ap-south-1`). Its migrations define all 14 requested tables, RLS, least-privilege grants, family-scoped policies, atomic actions, and private guidance rooms. Client requests use the signed-in user's access token and the publishable key; no service-role key is included in the mobile app or required for the current API.
 
-See [setup guide](docs/setup-guide.md), [architecture](docs/architecture.md), [API documentation](docs/api-documentation.md), [database schema](docs/database-schema.md), and [Figma reference](docs/design-reference.md).
+See [setup guide](docs/setup-guide.md), [architecture](docs/architecture.md), [API documentation](docs/api-documentation.md), [database schema](docs/database-schema.md), [Figma reference](docs/design-reference.md), and the [feature test plan](docs/feature-test-plan.md).
 
 The caregiver experience includes a shared task/medicine activity timeline and a consent-gated option to ask Gemini about the latest shared screen. The elderly Bhajan page supports play/pause for one operator-configured licensed HTTPS audio source. These features require Gemini credentials and an approved audio source respectively; empty configuration is shown as a clear setup state.
+
+## Run tests
+
+```sh
+cd backend && .venv/bin/pytest -q
+cd ../mobile && npx tsc --noEmit && npm test
+npx expo export --platform android --output-dir /tmp/saathi-export
+```
+
+The feature test plan records automated results and the live Supabase, credential, and Android checks that still need a configured test environment.

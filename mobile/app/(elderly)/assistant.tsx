@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View, Pressable } from "react-native";
+import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import {
-  createAudioPlayer,
+  createAudioPlaylist,
   requestRecordingPermissionsAsync,
   setAudioModeAsync,
   useAudioStream,
@@ -14,7 +16,9 @@ import { Screen } from "@/components/Screen";
 import { useFamilyContext } from "@/hooks/useFamilyContext";
 import { api } from "@/services/api";
 import { colors } from "@/theme/tokens";
-import { usePreferences } from "@/store/preferences";
+import { useI18n } from "@/hooks/useI18n";
+import { screenCapture, screenCaptureEvents } from "@/services/screenCapture";
+import { buildLiveAudioInput, buildLiveScreenInput, formatLiveCaption, resamplePcm16ForGemini, shouldInterruptLocalPlayback } from "@/utils/geminiLive";
 
 type ToolCall = { id: string; name: string; args: Record<string, unknown> };
 
@@ -26,12 +30,12 @@ const languageInstruction = {
 
 const liveTools = [{
   functionDeclarations: [
-    { name: "get_task_summary", description: "Read the family task list", parameters: { type: "OBJECT", properties: { family_id: { type: "STRING" } }, required: ["family_id"] } },
-    { name: "get_medicine_summary", description: "Read medicine schedule details", parameters: { type: "OBJECT", properties: { family_id: { type: "STRING" } }, required: ["family_id"] } },
-    { name: "get_family_contacts", description: "Read connected family contacts", parameters: { type: "OBJECT", properties: { family_id: { type: "STRING" } }, required: ["family_id"] } },
-    { name: "create_task", description: "Create a task after the user explicitly confirms", parameters: { type: "OBJECT", properties: { family_id: { type: "STRING" }, title: { type: "STRING" }, assigned_to: { type: "STRING" }, description: { type: "STRING" } }, required: ["family_id", "title", "assigned_to"] } },
-    { name: "complete_task", description: "Complete a task after explicit user confirmation", parameters: { type: "OBJECT", properties: { task_id: { type: "STRING" } }, required: ["task_id"] } },
-    { name: "confirm_medicine_taken", description: "Record a dose as taken only after explicit user confirmation", parameters: { type: "OBJECT", properties: { medicine_id: { type: "STRING" }, scheduled_for: { type: "STRING" } }, required: ["medicine_id"] } },
+    { name: "get_task_summary", behavior: "BLOCKING", description: "Read the family task list", parameters: { type: "OBJECT", properties: { family_id: { type: "STRING" } }, required: ["family_id"] } },
+    { name: "get_medicine_summary", behavior: "BLOCKING", description: "Read medicine schedule details", parameters: { type: "OBJECT", properties: { family_id: { type: "STRING" } }, required: ["family_id"] } },
+    { name: "get_family_contacts", behavior: "BLOCKING", description: "Read connected family contacts", parameters: { type: "OBJECT", properties: { family_id: { type: "STRING" } }, required: ["family_id"] } },
+    { name: "create_task", behavior: "BLOCKING", description: "Create a task after the user explicitly confirms", parameters: { type: "OBJECT", properties: { family_id: { type: "STRING" }, title: { type: "STRING" }, assigned_to: { type: "STRING" }, description: { type: "STRING" } }, required: ["family_id", "title", "assigned_to"] } },
+    { name: "complete_task", behavior: "BLOCKING", description: "Complete a task after explicit user confirmation", parameters: { type: "OBJECT", properties: { task_id: { type: "STRING" } }, required: ["task_id"] } },
+    { name: "confirm_medicine_taken", behavior: "BLOCKING", description: "Record a dose as taken only after explicit user confirmation", parameters: { type: "OBJECT", properties: { medicine_id: { type: "STRING" }, scheduled_for: { type: "STRING" } }, required: ["medicine_id"] } },
   ],
 }];
 
@@ -84,19 +88,25 @@ async function extractMessageText(data: unknown): Promise<string> {
 }
 
 export default function Assistant() {
-  const language = usePreferences((state) => state.language);
+  const router = useRouter();
+  const { t, language } = useI18n();
   const family = useFamilyContext();
   const socket = useRef<WebSocket | null>(null);
   const streamStarted = useRef(false);
+  const stopRequested = useRef(false);
   const setupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const audioChunks = useRef<string[]>([]);
-  const player = useRef<ReturnType<typeof createAudioPlayer> | null>(null);
+  const outputPlaylist = useRef<ReturnType<typeof createAudioPlaylist> | null>(null);
+  const playbackGeneration = useRef(0);
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [assistantSpeaking, setAssistantSpeaking] = useState(false);
   const [message, setMessage] = useState("Tap start and speak naturally.");
   const [transcript, setTranscript] = useState("");
+  const [liveCaption, setLiveCaption] = useState("");
   const [tool, setTool] = useState<ToolCall | null>(null);
   const [toolLabel, setToolLabel] = useState("");
+  const [sharingScreen, setSharingScreen] = useState(false);
+  const screenShareStartedHere = useRef(false);
 
   const stream = useAudioStream({
     sampleRate: 16000,
@@ -104,22 +114,54 @@ export default function Assistant() {
     encoding: "int16",
     onBuffer: (frame) => {
       if (socket.current?.readyState !== WebSocket.OPEN) return;
-      socket.current.send(JSON.stringify({ realtimeInput: { mediaChunks: [{ mimeType: `audio/pcm;rate=${frame.sampleRate}`, data: toBase64(frame.data) }] } }));
+      const pcm = resamplePcm16ForGemini(frame.data, frame.sampleRate, frame.channels);
+      socket.current.send(JSON.stringify(buildLiveAudioInput(toBase64(pcm), 16000)));
     },
   });
 
+  const clearOutputAudio = useCallback(() => {
+    playbackGeneration.current += 1;
+    outputPlaylist.current?.pause();
+    outputPlaylist.current?.clear();
+    setAssistantSpeaking(false);
+  }, []);
+
   const stop = useCallback(() => {
+    stopRequested.current = true;
     try { stream.stream.stop(); } catch { /* stream may not have started */ }
+    clearOutputAudio();
     if (setupTimer.current) clearTimeout(setupTimer.current);
     setupTimer.current = null;
     streamStarted.current = false;
     socket.current?.close();
     socket.current = null;
+    if (screenShareStartedHere.current) {
+      screenShareStartedHere.current = false;
+      void screenCapture?.stop();
+    }
+    setSharingScreen(false);
     setConnected(false); setConnecting(false); setTool(null); setToolLabel("");
     setMessage("Tap start and speak naturally.");
-  }, [stream.stream]);
+  }, [clearOutputAudio, stream.stream]);
 
-  useEffect(() => () => { stop(); player.current?.release(); }, [stop]);
+  useEffect(() => () => {
+    stop();
+    outputPlaylist.current?.destroy();
+    outputPlaylist.current = null;
+  }, [stop]);
+
+  useEffect(() => {
+    if (!screenCaptureEvents) return;
+    const frameSub = screenCaptureEvents.addListener("onScreenCaptureFrame", (event: { jpegBase64: string }) => {
+      if (!sharingScreen || !event.jpegBase64 || socket.current?.readyState !== WebSocket.OPEN) return;
+      socket.current.send(JSON.stringify(buildLiveScreenInput(event.jpegBase64)));
+    });
+    const stoppedSub = screenCaptureEvents.addListener("onScreenCaptureStopped", () => {
+      screenShareStartedHere.current = false;
+      setSharingScreen(false);
+    });
+    return () => { frameSub.remove(); stoppedSub.remove(); };
+  }, [sharingScreen]);
 
   const handleServerMessage = useCallback(async (event: MessageEvent) => {
     try {
@@ -131,24 +173,53 @@ export default function Assistant() {
         if (setupTimer.current) clearTimeout(setupTimer.current);
         setupTimer.current = null;
         await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: true, shouldPlayInBackground: false });
+        outputPlaylist.current?.destroy();
+        outputPlaylist.current = createAudioPlaylist({ sources: [], loop: "none", updateInterval: 100 });
+        outputPlaylist.current.addListener("playlistStatusUpdate", (status) => setAssistantSpeaking(status.playing));
         await stream.stream.start();
         setConnected(true); setConnecting(false); setMessage("I’m listening. You can stop whenever you like.");
       }
       const server = data.serverContent;
-      if (server?.inputTranscription?.text) setTranscript((old) => `${old}\nYou: ${server.inputTranscription.text}`.trim());
-      if (server?.outputTranscription?.text) setTranscript((old) => `${old}\nSaathi: ${server.outputTranscription.text}`.trim());
+      if (server?.interrupted) {
+        clearOutputAudio();
+        setMessage(t("listening"));
+      }
+      if (shouldInterruptLocalPlayback(server, outputPlaylist.current?.playing === true)) {
+        clearOutputAudio();
+      }
+      const interimInput = server?.interimInputTranscription?.text;
+      if (interimInput) setLiveCaption(formatLiveCaption("You", interimInput));
+      if (server?.inputTranscription?.text) {
+        const text = server.inputTranscription.text;
+        setTranscript((old) => `${old}\n${formatLiveCaption("You", text)}`.trim());
+        setLiveCaption(formatLiveCaption("You", text));
+      }
+      if (server?.outputTranscription?.text) {
+        const text = server.outputTranscription.text;
+        setTranscript((old) => `${old}\n${formatLiveCaption("Saathi", text)}`.trim());
+        setLiveCaption(formatLiveCaption("Saathi", text));
+      }
+      const responseAudio: string[] = [];
       for (const part of server?.modelTurn?.parts ?? []) {
-        if (part.inlineData?.mimeType?.startsWith("audio/pcm")) audioChunks.current.push(part.inlineData.data);
+        if (part.inlineData?.mimeType?.startsWith("audio/pcm")) responseAudio.push(part.inlineData.data);
         if (part.text) setMessage(part.text);
       }
-      if (server?.turnComplete && audioChunks.current.length) {
-        const audio = wavBase64(audioChunks.current);
-        audioChunks.current = [];
+      if (responseAudio.length) {
+        const generation = playbackGeneration.current;
+        const audio = wavBase64(responseAudio);
         const uri = `${FileSystem.cacheDirectory}saathi-response-${Date.now()}.wav`;
         await FileSystem.writeAsStringAsync(uri, audio, { encoding: FileSystem.EncodingType.Base64 });
-        player.current?.release();
-        player.current = createAudioPlayer(uri);
-        player.current.play();
+        if (generation !== playbackGeneration.current) {
+          void FileSystem.deleteAsync(uri, { idempotent: true });
+          return;
+        }
+        const playlist = outputPlaylist.current;
+        if (playlist) {
+          playlist.add(uri);
+          playlist.play();
+          setAssistantSpeaking(true);
+          setTimeout(() => { void FileSystem.deleteAsync(uri, { idempotent: true }); }, 120_000);
+        }
       }
 
       const call = data.toolCall?.functionCalls?.[0];
@@ -174,10 +245,11 @@ export default function Assistant() {
     } catch {
       setMessage("I couldn’t understand that response. Please try again.");
     }
-  }, [stream.stream]);
+  }, [clearOutputAudio, stream.stream, t]);
 
   const begin = useCallback(async () => {
-    setConnecting(true); streamStarted.current = false; audioChunks.current = []; setTranscript(""); setMessage("Connecting securely…");
+    stopRequested.current = false;
+    setConnecting(true); streamStarted.current = false; setTranscript(""); setLiveCaption(""); setMessage("Connecting securely…");
     try {
       const familyContext = family.data;
       if (!familyContext) throw new Error("Connect Saathi to your family before starting a conversation.");
@@ -191,24 +263,36 @@ export default function Assistant() {
         ws.send(JSON.stringify({ setup: {
           model: `models/${token.model}`,
           generationConfig: { responseModalities: ["AUDIO"] },
-          systemInstruction: { parts: [{ text: `You are Saathi, a kind voice companion for older adults. ${languageInstruction[language]} The active family_id is ${familyContext.family.id}; the signed-in user's id is ${familyContext.membership.user_id}. Use these when reading or creating tasks. Only assign tasks to the signed-in user unless the user identifies a known family member. Call one tool at a time. Give one short instruction at a time. Never ask for passwords, OTPs, PINs or banking credentials. Never change medicine dosage. Ask before changing data. ${languageInstruction[language]}` }] },
+          inputAudioTranscription: {},
+          outputAudioTranscription: {},
+          realtimeInputConfig: { activityHandling: "START_OF_ACTIVITY_INTERRUPTS" },
+          systemInstruction: { parts: [{ text: `You are Saathi, a kind voice companion for older adults. When the user explicitly starts screen sharing, inspect the incoming screen images and give one calm, short step at a time. The screen may contain private information; discuss only what helps with the user's request and never repeat secrets, OTPs, PINs, passwords, or banking credentials. ${languageInstruction[language]} The active family_id is ${familyContext.family.id}; the signed-in user's id is ${familyContext.membership.user_id}. Use these when reading or creating tasks. Only assign tasks to the signed-in user unless the user identifies a known family member. Call one tool at a time. Give one short instruction at a time. Never ask for passwords, OTPs, PINs or banking credentials. Never change medicine dosage. Ask before changing data. ${languageInstruction[language]}` }] },
           tools: liveTools,
         } }));
         setupTimer.current = setTimeout(() => {
-          if (!streamStarted.current) { setConnecting(false); setMessage("The voice service did not respond. Please try again."); socket.current?.close(); }
+          if (!streamStarted.current) { stopRequested.current = true; setConnecting(false); setMessage("The voice service did not respond. Please try again."); socket.current?.close(); }
         }, 12000);
       };
       ws.onmessage = (event) => { void handleServerMessage(event); };
-      ws.onerror = () => { try { stream.stream.stop(); } catch { /* already stopped */ } setMessage("Connection interrupted. Please try again."); setConnected(false); setConnecting(false); };
+      ws.onerror = () => {
+        try { stream.stream.stop(); } catch { /* already stopped */ }
+        clearOutputAudio();
+        if (screenShareStartedHere.current) { screenShareStartedHere.current = false; void screenCapture?.stop(); }
+        setSharingScreen(false); setMessage("Connection interrupted. Please try again."); setConnected(false); setConnecting(false);
+      };
       ws.onclose = () => {
         try { stream.stream.stop(); } catch { /* already stopped */ }
+        clearOutputAudio();
+        if (screenShareStartedHere.current) { screenShareStartedHere.current = false; void screenCapture?.stop(); }
+        setSharingScreen(false);
         if (setupTimer.current) clearTimeout(setupTimer.current);
         setupTimer.current = null; streamStarted.current = false; setConnected(false); setConnecting(false);
+        if (!stopRequested.current) setMessage("The voice connection ended. Tap Start talking to try again.");
       };
     } catch (error) {
       setConnecting(false); setMessage(error instanceof Error ? error.message : "Voice assistant is unavailable right now.");
     }
-  }, [family.data, handleServerMessage, language, stream.stream]);
+  }, [clearOutputAudio, family.data, handleServerMessage, language, stream.stream]);
 
   async function respondToTool(confirmed: boolean) {
     if (!tool || !socket.current) return;
@@ -233,25 +317,363 @@ export default function Assistant() {
     }
   }
 
-  return <Screen>
-    <Heading title="Talk to Saathi" subtitle="A calm voice companion for everyday questions." />
-    <Panel>
-      <Text accessibilityRole="text" style={styles.message}>{message}</Text>
-      {transcript ? <Text style={styles.transcript}>{transcript}</Text> : null}
-      {tool ? <View style={styles.tool}>
-        <Text style={styles.message}>{toolLabel}</Text>
-        <ActionButton disabled={!toolLabel || toolLabel.startsWith("Could not") || toolLabel === "Loading details…"} onPress={() => void respondToTool(true)}>Confirm action</ActionButton>
-        <ActionButton variant="secondary" onPress={() => void respondToTool(false)}>Cancel</ActionButton>
-      </View> : null}
-      {!connected ? <ActionButton disabled={family.isLoading || !family.data} loading={connecting} onPress={() => void begin()}>Start talking</ActionButton> : <ActionButton variant="danger" onPress={stop}>Stop listening</ActionButton>}
-      <Text style={styles.privacy}>Microphone audio is sent to Gemini Live while this session is active. Stop to end the session.</Text>
-    </Panel>
-  </Screen>;
+  async function toggleScreenSharing() {
+    if (!screenCapture || !screenCaptureEvents) {
+      setMessage("Screen sharing with Saathi is available in the Android app.");
+      return;
+    }
+    if (sharingScreen) {
+      screenShareStartedHere.current = false;
+      await screenCapture.stop();
+      setSharingScreen(false);
+      setMessage(t("screenSharingStopped"));
+      return;
+    }
+    try {
+      const approved = await screenCapture.requestAndStart();
+      if (!approved) {
+        setMessage("Screen sharing wasn’t started. Your screen was not sent to Saathi.");
+        return;
+      }
+      screenShareStartedHere.current = true;
+      setSharingScreen(true);
+      setMessage(t("screenSharingStarted"));
+    } catch {
+      setMessage("Screen sharing could not start. Your voice session is still available.");
+    }
+  }
+
+  return (
+    <Screen>
+      {/* Top Bar with Back Navigation & Language Pill */}
+      <View style={styles.topNav}>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.back()}
+          style={styles.backRow}
+        >
+          <Ionicons name="chevron-back" size={24} color={colors.ink} />
+          <Text style={styles.backLabel}>{t("talkToSaathi")}</Text>
+        </Pressable>
+        <View style={styles.langBadge}>
+          <Text style={styles.langText}>
+            {language === "hi" ? "हिन्दी" : language === "ta" ? "தமிழ்" : "English"}
+          </Text>
+        </View>
+      </View>
+
+      {/* Main Heading */}
+      <View style={styles.header}>
+        <Text style={styles.title}>{t("howCanIHelp")}</Text>
+        <Text style={styles.subtitle}>{t("speakNaturally")}</Text>
+      </View>
+
+      {/* Central Visual Voice Pulse Area */}
+      <View style={styles.pulseCard}>
+        <Pressable
+          accessibilityRole="button"
+          disabled={connecting}
+          onPress={() => {
+            if (connected) {
+              stop();
+            } else {
+              void begin();
+            }
+          }}
+          style={({ pressed }) => [
+            styles.micOuterCircle,
+            connected ? styles.micOuterConnected : styles.micOuterIdle,
+            pressed && styles.pressedState,
+          ]}
+        >
+          <View
+            style={[
+              styles.micInnerCircle,
+              connected ? styles.micInnerConnected : styles.micInnerIdle,
+            ]}
+          >
+            <Ionicons
+              name={connected ? "mic" : "mic-outline"}
+              size={54}
+              color={connected ? colors.white : colors.blue}
+            />
+          </View>
+        </Pressable>
+        <Text style={styles.statusLabel}>
+          {connecting
+            ? t("connectingSecurely")
+            : connected
+            ? assistantSpeaking ? t("speaking") : t("listening")
+            : t("tapToSpeak")}
+        </Text>
+        <Text style={styles.messageText}>{message}</Text>
+      </View>
+
+      {/* Live Transcript (if available) */}
+      {transcript || liveCaption ? (
+        <Panel variant="bordered" style={styles.transcriptPanel}>
+          <Text style={styles.transcriptHeader}>{liveCaption ? t("liveCaption") : t("conversation")}</Text>
+          {liveCaption ? <Text style={styles.liveCaption} accessibilityLiveRegion="polite">{liveCaption}</Text> : null}
+          {transcript ? <Text style={styles.transcript}>{transcript}</Text> : null}
+        </Panel>
+      ) : null}
+
+      {/* Explicit Tool Confirmation (Task or Medicine) */}
+      {tool ? (
+        <Panel variant="pale" style={styles.toolPanel}>
+          <Ionicons name="alert-circle" size={28} color={colors.blue} />
+          <Text style={styles.toolTitle}>{t("confirmAction")}</Text>
+          <Text style={styles.toolBody}>{toolLabel}</Text>
+          <ActionButton
+            disabled={!toolLabel || toolLabel.startsWith("Could not") || toolLabel === "Loading details…"}
+            onPress={() => void respondToTool(true)}
+          >
+            {t("yesConfirm")}
+          </ActionButton>
+          <ActionButton variant="secondary" onPress={() => void respondToTool(false)}>
+            {t("noCancel")}
+          </ActionButton>
+        </Panel>
+      ) : null}
+
+      {/* "Try saying..." Suggestions List */}
+      {!connected && !transcript ? (
+        <View style={styles.suggestionsSection}>
+          <Text style={styles.suggestionsHeader}>{t("trySaying")}</Text>
+          <View style={styles.suggestionsList}>
+            <View style={styles.suggestionItem}>
+              <Ionicons name="chatbubble-ellipses-outline" size={20} color={colors.blue} />
+              <Text style={styles.suggestionText}>"{t("suggestionBhajan")}"</Text>
+            </View>
+            <View style={styles.suggestionItem}>
+              <Ionicons name="chatbubble-ellipses-outline" size={20} color={colors.blue} />
+              <Text style={styles.suggestionText}>"{t("suggestionMed")}"</Text>
+            </View>
+            <View style={styles.suggestionItem}>
+              <Ionicons name="chatbubble-ellipses-outline" size={20} color={colors.blue} />
+              <Text style={styles.suggestionText}>"{t("suggestionCall")}"</Text>
+            </View>
+            <View style={styles.suggestionItem}>
+              <Ionicons name="chatbubble-ellipses-outline" size={20} color={colors.blue} />
+              <Text style={styles.suggestionText}>"{t("suggestionHelp")}"</Text>
+            </View>
+          </View>
+        </View>
+      ) : null}
+
+      {/* Bottom Action Controls */}
+      <View style={styles.bottomControls}>
+        {!connected ? (
+          <ActionButton
+            disabled={family.isLoading || !family.data}
+            loading={connecting}
+            onPress={() => void begin()}
+          >
+            {t("startTalking")}
+          </ActionButton>
+        ) : (
+          <>
+          <ActionButton variant={sharingScreen ? "danger" : "secondary"} onPress={() => void toggleScreenSharing()}>
+            {sharingScreen ? t("stopShareScreen") : t("shareScreen")}
+          </ActionButton>
+          <ActionButton variant="danger" onPress={stop}>
+            {t("stopListening")}
+          </ActionButton>
+          </>
+        )}
+        <Text style={styles.privacyNote}>
+          {sharingScreen
+            ? t("voicePrivacyScreen")
+            : t("voicePrivacy")}
+        </Text>
+      </View>
+    </Screen>
+  );
 }
 
 const styles = StyleSheet.create({
-  message: { fontFamily: "Inter_600SemiBold", fontSize: 21, lineHeight: 30, color: colors.ink },
-  transcript: { fontFamily: "Inter_400Regular", fontSize: 16, lineHeight: 23, color: colors.muted, marginVertical: 12 },
-  tool: { gap: 12, marginVertical: 12 },
-  privacy: { fontFamily: "Inter_400Regular", fontSize: 14, lineHeight: 20, color: colors.muted, marginTop: 12 },
+  topNav: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  backRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 4,
+  },
+  backLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 16,
+    color: colors.ink,
+  },
+  langBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 16,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  langText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: colors.muted,
+  },
+  header: {
+    gap: 6,
+    marginVertical: 12,
+  },
+  title: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 28,
+    lineHeight: 36,
+    color: colors.ink,
+  },
+  subtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 18,
+    lineHeight: 26,
+    color: colors.muted,
+  },
+  pulseCard: {
+    backgroundColor: colors.white,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 24,
+    alignItems: "center",
+    gap: 12,
+    marginVertical: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  micOuterCircle: {
+    width: 130,
+    height: 130,
+    borderRadius: 65,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  micOuterIdle: {
+    backgroundColor: colors.pale,
+  },
+  micOuterConnected: {
+    backgroundColor: "#DCE7FD",
+    borderWidth: 4,
+    borderColor: colors.blue,
+  },
+  micInnerCircle: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  micInnerIdle: {
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  micInnerConnected: {
+    backgroundColor: colors.blue,
+  },
+  statusLabel: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 20,
+    color: colors.blue,
+  },
+  messageText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 17,
+    lineHeight: 24,
+    color: colors.ink,
+    textAlign: "center",
+  },
+  transcriptPanel: {
+    gap: 8,
+  },
+  transcriptHeader: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 16,
+    color: colors.ink,
+  },
+  transcript: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 16,
+    lineHeight: 24,
+    color: colors.ink,
+  },
+  liveCaption: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 19,
+    lineHeight: 28,
+    color: colors.blue,
+  },
+  toolPanel: {
+    gap: 12,
+    alignItems: "center",
+  },
+  toolTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 20,
+    color: colors.ink,
+  },
+  toolBody: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 17,
+    lineHeight: 24,
+    color: colors.ink,
+    textAlign: "center",
+  },
+  suggestionsSection: {
+    gap: 10,
+    marginVertical: 12,
+  },
+  suggestionsHeader: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 18,
+    color: colors.ink,
+  },
+  suggestionsList: {
+    gap: 8,
+  },
+  suggestionItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: colors.white,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 14,
+  },
+  suggestionText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 16,
+    color: colors.ink,
+    flex: 1,
+  },
+  bottomControls: {
+    gap: 10,
+    marginTop: "auto",
+    paddingTop: 16,
+    paddingBottom: 16,
+  },
+  privacyNote: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    lineHeight: 19,
+    color: colors.muted,
+    textAlign: "center",
+  },
+  pressedState: {
+    transform: [{ scale: 0.97 }],
+  },
 });

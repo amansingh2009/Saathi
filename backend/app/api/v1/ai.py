@@ -27,6 +27,8 @@ LIVE_TOOLS = [{"function_declarations": [
     {"name": "complete_task", "description": "Complete a family task only after the user confirms.", "parameters": {"type": "OBJECT", "properties": {"task_id": {"type": "STRING"}}, "required": ["task_id"]}},
     {"name": "confirm_medicine_taken", "description": "Record a dose as taken only after the user explicitly confirms they took it.", "parameters": {"type": "OBJECT", "properties": {"medicine_id": {"type": "STRING"}, "scheduled_for": {"type": "STRING"}}, "required": ["medicine_id"]}},
 ]}]
+for declaration in LIVE_TOOLS[0]["function_declarations"]:
+    declaration["behavior"] = "BLOCKING"
 
 
 @router.post("/live-token")
@@ -50,6 +52,11 @@ async def live_token(_: dict = Depends(current_user)):
                     response_modalities=["AUDIO"],
                     system_instruction=SYSTEM_INSTRUCTION,
                     tools=LIVE_TOOLS,
+                    input_audio_transcription=types.AudioTranscriptionConfig(),
+                    output_audio_transcription=types.AudioTranscriptionConfig(),
+                    realtime_input_config=types.RealtimeInputConfig(
+                        activity_handling=types.ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
+                    ),
                 ),
             ),
         )

@@ -111,7 +111,7 @@ class ScreenCaptureService : Service() {
     val stop = PendingIntent.getService(this, 0, Intent(this, ScreenCaptureService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) Notification.Builder(this, CHANNEL_ID) else Notification.Builder(this)
     return builder.setContentTitle("Saathi screen sharing is on")
-      .setContentText("Your family can see your screen. Tap Stop to end sharing.")
+      .setContentText("Your screen is shared with Saathi. Tap Stop to end sharing.")
       .setSmallIcon(android.R.drawable.ic_menu_view)
       .setOngoing(true)
       .addAction(Notification.Action.Builder(android.R.drawable.ic_media_pause, "Stop sharing", stop).build())
