@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { StyleSheet, Text, View, Pressable } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { ActionButton } from "@/components/ActionButton";
 import { LoadingState } from "@/components/LoadingState";
 import { ProblemState } from "@/components/ProblemState";
 import { Screen } from "@/components/Screen";
@@ -128,10 +129,18 @@ export default function SharedActivity() {
           })}
         </View>
       ) : (
+        /* Empty State (Figma Frame 46: Shared activity · Before task) */
         <View style={styles.emptyCard}>
-          <Ionicons name="time-outline" size={36} color={colors.muted} />
+          <View style={styles.emptyIconCircle}>
+            <Ionicons name="time-outline" size={44} color={colors.blue} />
+          </View>
           <Text style={styles.emptyTitle}>{t("noSharedUpdates")}</Text>
           <Text style={styles.emptySubtitle}>{t("sharedActivitySub")}</Text>
+          <View style={styles.emptyActionsRow}>
+            <ActionButton onPress={() => router.push("/(caregiver)/add-task")}>
+              {t("addTask")}
+            </ActionButton>
+          </View>
         </View>
       )}
     </Screen>
@@ -269,5 +278,18 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: colors.muted,
     textAlign: "center",
+  },
+  emptyIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: colors.pale,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+  },
+  emptyActionsRow: {
+    width: "100%",
+    marginTop: 8,
   },
 });
