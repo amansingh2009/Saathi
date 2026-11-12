@@ -110,7 +110,7 @@ export const strings = {
     // Medicines
     medicineSubtitle: "Please confirm only after you have taken your dose.",
     noMedicinesListed: "No medicines listed",
-    noMedicinesSchedule: "Your schedule is currently clear. Your family caregiver can add your daily medicine doses.",
+    noMedicinesSchedule: "Your schedule is currently clear. You or your family caregiver can add your daily medicine doses.",
     iTookThis: "I took this",
     later: "Later",
     reminderTime: "Reminder • {time}",
@@ -120,6 +120,15 @@ export const strings = {
     doseRecordedBody: "Great! Your family can see you've taken this medicine.",
     markedForLater: "Marked for Later",
     markedForLaterBody: "We'll keep this reminder available for later.",
+    editMedicine: "Edit Medicine",
+    deleteMedicine: "Delete",
+    medicineNamePlaceholder: "Medicine Name (e.g. Paracetamol)",
+    scheduledTime: "Time (e.g. 09:00)",
+    saveMedicine: "Save Medicine",
+    updateMedicine: "Update Medicine",
+    confirmDeleteMedicine: "Are you sure you want to remove this medicine?",
+    medicineSavedSuccess: "Medicine saved successfully.",
+    medicineDeletedSuccess: "Medicine removed.",
 
     // Bhajan / Devotional Music
     devotionalMusic: "Devotional Music",
@@ -410,7 +419,7 @@ export const strings = {
     // Medicines
     medicineSubtitle: "कृपया दवा लेने के बाद ही पुष्टि करें।",
     noMedicinesListed: "कोई दवा सूचीबद्ध नहीं है",
-    noMedicinesSchedule: "आपकी दवाओं की सूची अभी खाली है। आपके परिवार के सदस्य खुराक जोड़ सकते हैं।",
+    noMedicinesSchedule: "आपकी दवाओं की सूची अभी खाली है। आप या आपके परिवार के सदस्य खुराक जोड़ सकते हैं।",
     iTookThis: "मैंने यह दवा ले ली",
     later: "बाद में",
     reminderTime: "स्मरण समय • {time}",
@@ -420,6 +429,15 @@ export const strings = {
     doseRecordedBody: "बहुत अच्छा! आपके परिवार को पता चल गया है कि आपने यह दवा ले ली है।",
     markedForLater: "बाद के लिए रखा गया",
     markedForLaterBody: "यह रिमाइंडर बाद के लिए उपलब्ध रहेगा।",
+    editMedicine: "दवाई बदलें",
+    deleteMedicine: "हटाएं",
+    medicineNamePlaceholder: "दवाई का नाम (जैसे पैरासिटामोल)",
+    scheduledTime: "समय (जैसे 09:00)",
+    saveMedicine: "दवाई सहेजें",
+    updateMedicine: "दवाई अपडेट करें",
+    confirmDeleteMedicine: "क्या आप वाकई इस दवाई को हटाना चाहते हैं?",
+    medicineSavedSuccess: "दवाई सफलतापूर्वक सहेजी गई।",
+    medicineDeletedSuccess: "दवाई हटा दी गई।",
 
     // Bhajan / Devotional Music
     devotionalMusic: "भक्ति संगीत",
@@ -710,7 +728,7 @@ export const strings = {
     // Medicines
     medicineSubtitle: "மருந்து சாப்பிட்ட பிறகு மட்டுமே உறுதிப்படுத்தவும்.",
     noMedicinesListed: "மருந்துகள் எதுவும் பட்டியலிடப்படவில்லை",
-    noMedicinesSchedule: "உங்கள் அட்டவணை தற்போது தெளிவாக உள்ளது. உங்கள் குடும்ப உறுப்பினர் மருந்துகளைச் சேர்க்கலாம்.",
+    noMedicinesSchedule: "உங்கள் அட்டவணை தற்போது தெளிவாக உள்ளது. நீங்களோ உங்கள் குடும்ப உறுப்பினரோ மருந்துகளைச் சேர்க்கலாம்.",
     iTookThis: "நான் இதை எடுத்துக்கொண்டேன்",
     later: "பிறகு",
     reminderTime: "நினைவூட்டல் • {time}",
@@ -720,6 +738,15 @@ export const strings = {
     doseRecordedBody: "அருமை! நீங்கள் இந்த மருந்தை உட்கொண்டதை உங்கள் குடும்பத்தினர் பார்க்கலாம்.",
     markedForLater: "பிறகு எடுக்கக் குறிக்கப்பட்டது",
     markedForLaterBody: "இந்த நினைவூட்டல் பிறகு உங்களுக்குக் கிடைக்கும்.",
+    editMedicine: "மருந்தை மாற்றவும்",
+    deleteMedicine: "நீக்கு",
+    medicineNamePlaceholder: "மருந்தின் பெயர் (எ.கா. பாராசிட்டமால்)",
+    scheduledTime: "நேரம் (எ.கா. 09:00)",
+    saveMedicine: "மருந்தை சேமிக்கவும்",
+    updateMedicine: "மருந்தை புதுப்பிக்கவும்",
+    confirmDeleteMedicine: "இந்த மருந்தை நிச்சயமாக நீக்க விரும்புகிறீர்களா?",
+    medicineSavedSuccess: "மருந்து வெற்றிகரமாக சேமிக்கப்பட்டது.",
+    medicineDeletedSuccess: "மருந்து நீக்கப்பட்டது.",
 
     // Bhajan / Devotional Music
     devotionalMusic: "பக்தி இசை",

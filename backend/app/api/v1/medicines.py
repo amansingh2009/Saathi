@@ -13,12 +13,17 @@ router = APIRouter(prefix="/medicines", tags=["medicines"])
 
 @router.post("", status_code=201)
 async def create_medicine(payload: MedicationCreate, user: dict = Depends(current_user), db: SupabaseREST = Depends(db_for_user)):
-    return await db.insert("medications", {**payload.model_dump(mode="json"), "created_by": user["id"]})
+    data = {**payload.model_dump(mode="json"), "created_by": user["id"]}
+    if not data.get("elderly_user_id"):
+        data["elderly_user_id"] = user["id"]
+    return await db.insert("medications", data)
 
 
 @router.get("")
-async def list_medicines(family_id: UUID | None = Query(default=None), db: SupabaseREST = Depends(db_for_user)):
+async def list_medicines(family_id: UUID | None = Query(default=None), is_active: bool = Query(default=True), db: SupabaseREST = Depends(db_for_user)):
     filters = {"order": "name.asc"}
+    if is_active is not None:
+        filters["is_active"] = f"eq.{str(is_active).lower()}"
     if family_id:
         filters["family_id"] = f"eq.{family_id}"
     return await db.select("medications", **filters)
@@ -57,6 +62,12 @@ async def add_schedule(medicine_id: UUID, payload: ScheduleCreate, db: SupabaseR
 @router.get("/{medicine_id}/schedules")
 async def list_schedules(medicine_id: UUID, db: SupabaseREST = Depends(db_for_user)):
     return await db.select("medication_schedules", medication_id=f"eq.{medicine_id}", is_active="eq.true", order="scheduled_time.asc")
+
+
+@router.delete("/{medicine_id}/schedules/{schedule_id}", status_code=204)
+async def delete_schedule(medicine_id: UUID, schedule_id: UUID, db: SupabaseREST = Depends(db_for_user)):
+    await db.patch("medication_schedules", {"id": f"eq.{schedule_id}", "medication_id": f"eq.{medicine_id}"}, {"is_active": False})
+    return Response(status_code=204)
 
 
 @router.post("/{medicine_id}/logs", status_code=201)

@@ -42,7 +42,7 @@ class TaskUpdate(BaseModel):
 
 class MedicationCreate(BaseModel):
     family_id: UUID
-    elderly_user_id: UUID
+    elderly_user_id: UUID | None = None
     name: str = Field(min_length=1, max_length=160)
     dosage: str | None = Field(default=None, max_length=160)
     instructions: str | None = Field(default=None, max_length=1000)
@@ -86,8 +86,16 @@ class DeviceRegistration(BaseModel):
 
 class AIToolExecution(BaseModel):
     name: Literal[
-        "get_task_summary", "get_medicine_summary", "get_medicine_history", "create_task",
-        "complete_task", "confirm_medicine_taken", "get_family_contacts",
+        "get_task_summary",
+        "get_medicine_summary",
+        "get_medicine_history",
+        "create_task",
+        "complete_task",
+        "create_medicine",
+        "confirm_medicine_taken",
+        "record_medicine_skipped",
+        "get_family_contacts",
+        "update_user_interests",
     ]
     arguments: dict
     confirmed: bool = False

@@ -12,6 +12,13 @@ export function useFamilyRealtime(familyId: string | undefined) {
       .on("postgres_changes", { event: "*", schema: "public", table: "tasks", filter: `family_id=eq.${familyId}` }, () => {
         void client.invalidateQueries({ queryKey: ["tasks", familyId] });
       })
+      .on("postgres_changes", { event: "*", schema: "public", table: "medications", filter: `family_id=eq.${familyId}` }, () => {
+        void client.invalidateQueries({ queryKey: ["medicines", familyId] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "medication_schedules", filter: `family_id=eq.${familyId}` }, () => {
+        void client.invalidateQueries({ queryKey: ["medicines", familyId] });
+        void client.invalidateQueries({ queryKey: ["medication-schedules"] });
+      })
       .on("postgres_changes", { event: "*", schema: "public", table: "medication_logs", filter: `family_id=eq.${familyId}` }, () => {
         void client.invalidateQueries({ queryKey: ["medicines", familyId] });
         void client.invalidateQueries({ queryKey: ["medicine-history", familyId] });

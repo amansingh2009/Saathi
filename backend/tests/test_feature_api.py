@@ -434,3 +434,69 @@ def test_new_connection_request_is_pending_and_bound_to_current_user():
     assert table == "senior_connections"
     assert row["requester_id"] == USER_ID
     assert row["status"] == "pending"
+
+
+def test_ai_tool_create_task():
+    db = MemoryDB({"family_members": [{"family_id": FAMILY_ID, "user_id": USER_ID, "status": "active"}]})
+    with api_client(db) as client:
+        res = client.post(
+            "/api/v1/ai/tool-execution",
+            json={
+                "name": "create_task",
+                "arguments": {"title": "Evening Walk", "family_id": FAMILY_ID},
+                "confirmed": True,
+            },
+        )
+    assert res.status_code == 200
+    assert res.json()["result"] == "created"
+    table, row = db.inserts[0]
+    assert table == "tasks"
+    assert row["title"] == "Evening Walk"
+    assert row["family_id"] == FAMILY_ID
+
+
+def test_ai_tool_create_medicine():
+    db = MemoryDB({"family_members": [{"family_id": FAMILY_ID, "user_id": USER_ID, "status": "active"}]})
+    with api_client(db) as client:
+        res = client.post(
+            "/api/v1/ai/tool-execution",
+            json={
+                "name": "create_medicine",
+                "arguments": {
+                    "name": "Amlodipine",
+                    "dosage": "5mg",
+                    "scheduled_time": "08:00",
+                    "family_id": FAMILY_ID,
+                },
+                "confirmed": True,
+            },
+        )
+    assert res.status_code == 200
+    assert res.json()["result"] == "created"
+    tables = [t for t, _ in db.inserts]
+    assert "medications" in tables
+    assert "medication_schedules" in tables
+
+
+def test_ai_tool_update_user_interests():
+    db = MemoryDB({"profiles": [{"id": USER_ID, "interests": ["bhajans"], "bio": "Senior friend"}]})
+    with api_client(db) as client:
+        res = client.post(
+            "/api/v1/ai/tool-execution",
+            json={
+                "name": "update_user_interests",
+                "arguments": {
+                    "interests": ["gardening", "chess"],
+                    "bio": "Enjoys morning tea",
+                },
+                "confirmed": True,
+            },
+        )
+    assert res.status_code == 200
+    assert res.json()["result"] == "updated"
+    assert len(db.patches) > 0
+    table, filters, values = db.patches[0]
+    assert table == "profiles"
+    assert "gardening" in values["interests"]
+    assert "bhajans" in values["interests"]
+

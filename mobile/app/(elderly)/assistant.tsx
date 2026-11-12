@@ -25,6 +25,8 @@ type ToolCall = { id: string; name: string; args: Record<string, unknown> };
 type ChatMessage = { id: string; role: "user" | "model"; content: string };
 type BrowserCapture = { stream: MediaStream; timer: ReturnType<typeof setInterval> };
 
+import { useChatHistory } from "../../src/store/chatHistory";
+
 const languageInstruction = {
   en: "Answer in simple English.",
   hi: "सरल हिंदी में जवाब दें।",
@@ -34,12 +36,15 @@ const languageInstruction = {
 const liveTools = [{
   functionDeclarations: [
     { name: "get_task_summary", description: "Read the family task list", parameters: { type: "OBJECT", properties: { family_id: { type: "STRING" } }, required: ["family_id"] } },
+    { name: "create_task", description: "Create a task for the family member", parameters: { type: "OBJECT", properties: { title: { type: "STRING" }, description: { type: "STRING" }, due_at: { type: "STRING" }, family_id: { type: "STRING" }, assigned_to: { type: "STRING" } }, required: ["title"] } },
+    { name: "complete_task", description: "Complete a task after explicit user confirmation", parameters: { type: "OBJECT", properties: { task_id: { type: "STRING" }, title: { type: "STRING" } } } },
     { name: "get_medicine_summary", description: "Read medicine schedule details", parameters: { type: "OBJECT", properties: { family_id: { type: "STRING" } }, required: ["family_id"] } },
+    { name: "create_medicine", description: "Add a new medication and scheduled reminders", parameters: { type: "OBJECT", properties: { name: { type: "STRING" }, dosage: { type: "STRING" }, instructions: { type: "STRING" }, scheduled_time: { type: "STRING" }, days_of_week: { type: "ARRAY", items: { type: "INTEGER" } }, family_id: { type: "STRING" } }, required: ["name"] } },
+    { name: "confirm_medicine_taken", description: "Record a dose as taken only after explicit user confirmation", parameters: { type: "OBJECT", properties: { medicine_id: { type: "STRING" }, medicine_name: { type: "STRING" }, scheduled_for: { type: "STRING" }, note: { type: "STRING" } } } },
+    { name: "record_medicine_skipped", description: "Record a dose as skipped with an optional reason", parameters: { type: "OBJECT", properties: { medicine_id: { type: "STRING" }, medicine_name: { type: "STRING" }, scheduled_for: { type: "STRING" }, note: { type: "STRING" } } } },
     { name: "get_medicine_history", description: "Read recorded medicine responses for a requested inclusive date range. Use YYYY-MM-DD dates and Asia/Kolkata timezone.", parameters: { type: "OBJECT", properties: { family_id: { type: "STRING" }, start_date: { type: "STRING" }, end_date: { type: "STRING" }, timezone: { type: "STRING" } }, required: ["family_id", "start_date", "end_date", "timezone"] } },
     { name: "get_family_contacts", description: "Read connected family contacts", parameters: { type: "OBJECT", properties: { family_id: { type: "STRING" } }, required: ["family_id"] } },
-    { name: "create_task", description: "Create a task after the user explicitly confirms", parameters: { type: "OBJECT", properties: { family_id: { type: "STRING" }, title: { type: "STRING" }, assigned_to: { type: "STRING" }, description: { type: "STRING" } }, required: ["family_id", "title", "assigned_to"] } },
-    { name: "complete_task", description: "Complete a task after explicit user confirmation", parameters: { type: "OBJECT", properties: { task_id: { type: "STRING" } }, required: ["task_id"] } },
-    { name: "confirm_medicine_taken", description: "Record a dose as taken only after explicit user confirmation", parameters: { type: "OBJECT", properties: { medicine_id: { type: "STRING" }, scheduled_for: { type: "STRING" } }, required: ["medicine_id"] } },
+    { name: "update_user_interests", description: "Save personal interests, hobbies, or life notes to remember for future conversations", parameters: { type: "OBJECT", properties: { interests: { type: "ARRAY", items: { type: "STRING" } }, bio: { type: "STRING" } } } },
   ],
 }];
 
@@ -122,13 +127,22 @@ export default function Assistant({ initialMode: propInitialMode }: { initialMod
   const [liveCaption, setLiveCaption] = useState("");
   const [tool, setTool] = useState<ToolCall | null>(null);
   const [toolLabel, setToolLabel] = useState("");
+  const chatHistory = useChatHistory();
   const [sharingScreen, setSharingScreen] = useState(false);
   const [mode, setMode] = useState<"text" | "voice">(effectiveInitialMode === "text" ? "text" : "voice");
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() =>
+    chatHistory.messages.map((m) => ({ id: m.id, role: m.role, content: m.content }))
+  );
   const [chatDraft, setChatDraft] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
   const [chatError, setChatError] = useState("");
   const screenShareStartedHere = useRef(false);
+
+  useEffect(() => {
+    if (chatHistory.messages.length > 0 && chatMessages.length === 0) {
+      setChatMessages(chatHistory.messages.map((m) => ({ id: m.id, role: m.role, content: m.content })));
+    }
+  }, [chatHistory.messages]);
 
   const stream = useAudioStream({
     sampleRate: 16000,
@@ -243,16 +257,29 @@ export default function Assistant({ initialMode: propInitialMode }: { initialMod
       const call = data.toolCall?.functionCalls?.[0];
       if (!call) return;
       const pending: ToolCall = { id: call.id, name: call.name, args: call.args ?? {} };
-      if (["create_task", "complete_task", "confirm_medicine_taken"].includes(pending.name)) {
+      if (["create_task", "complete_task", "confirm_medicine_taken", "create_medicine", "record_medicine_skipped", "update_user_interests"].includes(pending.name)) {
         try { stream.stream.stop(); } catch { /* stream was already paused */ }
         setTool(pending);
-        setToolLabel(pending.name === "create_task" ? `Create task “${String(pending.args.title ?? "")}” for you?` : "Loading details…");
+        let label = "Loading details…";
+        if (pending.name === "create_task") label = `Create task “${String(pending.args.title ?? "")}” for you?`;
+        else if (pending.name === "create_medicine") label = `Add medicine “${String(pending.args.name ?? "")}”${pending.args.dosage ? ` (${String(pending.args.dosage)})` : ""}?`;
+        else if (pending.name === "record_medicine_skipped") label = `Record “${String(pending.args.medicine_name || pending.args.name || "medicine")}” as skipped?`;
+        else if (pending.name === "update_user_interests") label = "Remember these details in your profile?";
+        setToolLabel(label);
         setMessage("Saathi would like to make a change. Please review it first.");
         if (pending.name === "complete_task") {
-          void api<{ title: string }>(`/tasks/${pending.args.task_id}`).then((task) => setToolLabel(`Mark “${task.title}” as complete?`)).catch(() => setToolLabel("Could not load the task details. Please cancel and try again."));
+          if (pending.args.task_id) {
+            void api<{ title: string }>(`/tasks/${pending.args.task_id}`).then((task) => setToolLabel(`Mark “${task.title}” as complete?`)).catch(() => setToolLabel("Could not load the task details. Please cancel and try again."));
+          } else {
+            setToolLabel(`Mark “${String(pending.args.title ?? "task")}” as complete?`);
+          }
         }
         if (pending.name === "confirm_medicine_taken") {
-          void api<{ name: string }>(`/medicines/${pending.args.medicine_id}`).then((medicine) => setToolLabel(`Record “${medicine.name}” as taken?`)).catch(() => setToolLabel("Could not load the medicine details. Please cancel and try again."));
+          if (pending.args.medicine_id) {
+            void api<{ name: string }>(`/medicines/${pending.args.medicine_id}`).then((medicine) => setToolLabel(`Record “${medicine.name}” as taken?`)).catch(() => setToolLabel("Could not load the medicine details. Please cancel and try again."));
+          } else {
+            setToolLabel(`Record “${String(pending.args.medicine_name || pending.args.name || "medicine")}” as taken?`);
+          }
         }
         return;
       }
@@ -351,9 +378,11 @@ export default function Assistant({ initialMode: propInitialMode }: { initialMod
   async function sendTextMessage(text = chatDraft) {
     const content = text.trim();
     if (!content || chatBusy) return;
-    const userMessage: ChatMessage = { id: `${Date.now()}-user`, role: "user", content };
-    const nextMessages = [...chatMessages, userMessage].slice(-24);
+    const userMsgId = `${Date.now()}-user`;
+    const userMessage: ChatMessage = { id: userMsgId, role: "user", content };
+    const nextMessages = [...chatMessages, userMessage].slice(-30);
     setChatMessages(nextMessages);
+    chatHistory.addMessage({ id: userMsgId, role: "user", content });
     setChatDraft("");
     setChatError("");
     setChatBusy(true);
@@ -365,7 +394,9 @@ export default function Assistant({ initialMode: propInitialMode }: { initialMod
           messages: nextMessages.map(({ role, content: messageContent }) => ({ role, content: messageContent })),
         }),
       });
-      setChatMessages((current) => [...current, { id: `${Date.now()}-model`, role: "model" as const, content: result.reply }].slice(-24));
+      const modelMsgId = `${Date.now()}-model`;
+      setChatMessages((current) => [...current, { id: modelMsgId, role: "model" as const, content: result.reply }].slice(-30));
+      chatHistory.addMessage({ id: modelMsgId, role: "model", content: result.reply });
     } catch (error) {
       setChatError(error instanceof Error ? error.message : "Saathi couldn’t reply. Please try again.");
     } finally {
@@ -491,10 +522,27 @@ export default function Assistant({ initialMode: propInitialMode }: { initialMod
 
       {mode === "text" ? (
         <>
-          <Panel variant="pale" style={styles.chatWelcomePanel}>
-            <Ionicons name="sparkles" size={22} color={colors.blue} />
-            <Text style={styles.chatWelcomeText}>{t("chatWelcome")}</Text>
-          </Panel>
+          <View style={styles.chatHeaderRow}>
+            <Panel variant="pale" style={styles.chatWelcomePanel}>
+              <Ionicons name="sparkles" size={22} color={colors.blue} />
+              <Text style={styles.chatWelcomeText}>{t("chatWelcome")}</Text>
+            </Panel>
+            {chatMessages.length > 0 ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Clear chat history"
+                style={styles.clearChatButton}
+                onPress={() => {
+                  chatHistory.clearHistory();
+                  setChatMessages([]);
+                  setChatError("");
+                }}
+              >
+                <Ionicons name="trash-outline" size={16} color={colors.muted} />
+                <Text style={styles.clearChatText}>Clear</Text>
+              </Pressable>
+            ) : null}
+          </View>
           <View style={styles.chatMessages}>
             {chatMessages.length === 0 ? (
               <View style={styles.quickPrompts}>
@@ -739,7 +787,30 @@ const styles = StyleSheet.create({
   modeButtonLabelActive: {
     color: colors.white,
   },
+  chatHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  clearChatButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    backgroundColor: colors.pale,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  clearChatText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+    color: colors.muted,
+  },
   chatWelcomePanel: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
   },
