@@ -155,6 +155,43 @@ export default function Assistant({ initialMode: propInitialMode }: { initialMod
     },
   });
 
+  const safePausePlayer = useCallback(() => {
+    try {
+      const p = player.current;
+      if (p) {
+        p.pause();
+        try {
+          void p.seekTo(0);
+        } catch {
+          /* ignore seek on released player */
+        }
+      }
+    } catch {
+      /* AudioPlayer may already be released or paused */
+    }
+  }, []);
+
+  const safeReleasePlayer = useCallback(() => {
+    try {
+      const p = player.current;
+      player.current = null;
+      if (p) {
+        try { p.pause(); } catch { /* ignore */ }
+        try { p.release(); } catch { /* ignore */ }
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const isPlayerPlaying = useCallback((): boolean => {
+    try {
+      return player.current?.playing === true;
+    } catch {
+      return false;
+    }
+  }, []);
+
   const stopBrowserCapture = useCallback(() => {
     const current = browserCapture.current;
     if (!current) return;
@@ -166,8 +203,7 @@ export default function Assistant({ initialMode: propInitialMode }: { initialMod
   const stop = useCallback(() => {
     try { stream.stream.stop(); } catch { /* stream may not have started */ }
     audioChunks.current = [];
-    player.current?.pause();
-    if (player.current) void player.current.seekTo(0);
+    safePausePlayer();
     if (setupTimer.current) clearTimeout(setupTimer.current);
     setupTimer.current = null;
     streamStarted.current = false;
@@ -181,7 +217,13 @@ export default function Assistant({ initialMode: propInitialMode }: { initialMod
     setSharingScreen(false);
     setConnected(false); setConnecting(false); setTool(null); setToolLabel("");
     setMessage("Tap start and speak naturally.");
-  }, [stopBrowserCapture, stream.stream]);
+  }, [safePausePlayer, stopBrowserCapture, stream.stream]);
+
+  const stopRef = useRef(stop);
+  stopRef.current = stop;
+
+  const safeReleasePlayerRef = useRef(safeReleasePlayer);
+  safeReleasePlayerRef.current = safeReleasePlayer;
 
   function selectMode(nextMode: "text" | "voice") {
     if (nextMode === mode) return;
@@ -189,7 +231,12 @@ export default function Assistant({ initialMode: propInitialMode }: { initialMod
     setMode(nextMode);
   }
 
-  useEffect(() => () => { stop(); player.current?.release(); }, [stop]);
+  useEffect(() => {
+    return () => {
+      stopRef.current();
+      safeReleasePlayerRef.current();
+    };
+  }, []);
 
   useEffect(() => {
     if (!screenCaptureEvents) return;
@@ -220,13 +267,11 @@ export default function Assistant({ initialMode: propInitialMode }: { initialMod
       const server = data.serverContent;
       if (server?.interrupted) {
         audioChunks.current = [];
-        player.current?.pause();
-        if (player.current) void player.current.seekTo(0);
+        safePausePlayer();
         setMessage(t("listening"));
       }
-      if (shouldInterruptLocalPlayback(server, player.current?.playing === true)) {
-        player.current?.pause();
-        if (player.current) void player.current.seekTo(0);
+      if (shouldInterruptLocalPlayback(server, isPlayerPlaying())) {
+        safePausePlayer();
       }
       const interimInput = server?.interimInputTranscription?.text;
       if (interimInput) setLiveCaption(formatLiveCaption("You", interimInput));
@@ -249,9 +294,14 @@ export default function Assistant({ initialMode: propInitialMode }: { initialMod
         audioChunks.current = [];
         const uri = `${FileSystem.cacheDirectory}saathi-response-${Date.now()}.wav`;
         await FileSystem.writeAsStringAsync(uri, audio, { encoding: FileSystem.EncodingType.Base64 });
-        player.current?.release();
-        player.current = createAudioPlayer(uri);
-        player.current.play();
+        safeReleasePlayer();
+        try {
+          const newPlayer = createAudioPlayer(uri);
+          player.current = newPlayer;
+          newPlayer.play();
+        } catch (err) {
+          console.warn("Failed to play audio response", err);
+        }
       }
 
       const call = data.toolCall?.functionCalls?.[0];
