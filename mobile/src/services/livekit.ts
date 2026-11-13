@@ -24,6 +24,13 @@ export interface CallMediaState {
 
 let nativeLiveKitAvailable: boolean | null = null;
 
+export function isWebRTCAvailable(): boolean {
+  if (Platform.OS === "web") {
+    return typeof window !== "undefined" && typeof (window as any).RTCPeerConnection !== "undefined";
+  }
+  return isNativeWebRTCAvailable();
+}
+
 export function isNativeWebRTCAvailable(): boolean {
   if (nativeLiveKitAvailable !== null) {
     return nativeLiveKitAvailable;
@@ -76,7 +83,8 @@ export class LiveKitCallSession {
   }
 
   async connect(url: string, token: string, isVideo: boolean = true): Promise<void> {
-    const nativeSupported = isNativeWebRTCAvailable();
+    const webSupported = Platform.OS === "web" && typeof window !== "undefined" && typeof (window as any).RTCPeerConnection !== "undefined";
+    const nativeSupported = isNativeWebRTCAvailable() || webSupported;
 
     if (!nativeSupported) {
       // Graceful Expo Go fallback: simulate live connection with signaling active
@@ -93,9 +101,10 @@ export class LiveKitCallSession {
     }
 
     try {
-      // Dynamically import LiveKit components only when native modules exist
-      const { registerGlobals } = await import("@livekit/react-native");
-      registerGlobals();
+      if (Platform.OS !== "web") {
+        const { registerGlobals } = await import("@livekit/react-native");
+        registerGlobals();
+      }
 
       const { Room, RoomEvent } = await import("livekit-client");
       const room = new Room({
@@ -129,7 +138,16 @@ export class LiveKitCallSession {
         this.events.onTracksChanged?.(refs);
       };
 
-      room.on(RoomEvent.TrackSubscribed, () => {
+      room.on(RoomEvent.TrackSubscribed, (track: any) => {
+        if (Platform.OS === "web" && track?.attach && typeof document !== "undefined") {
+          try {
+            const el = track.attach();
+            el.dataset.livekitTrack = track.sid || "track";
+            document.body.appendChild(el);
+          } catch (e) {
+            console.warn("Could not attach web track:", e);
+          }
+        }
         const hasVideo = Array.from(room.remoteParticipants.values()).some((p: any) =>
           p.videoTrackPublications && Array.from(p.videoTrackPublications.values()).some((pub: any) => pub.isSubscribed && !pub.isMuted)
         );
@@ -140,7 +158,12 @@ export class LiveKitCallSession {
         emitTracks();
       });
 
-      room.on(RoomEvent.TrackUnsubscribed, () => {
+      room.on(RoomEvent.TrackUnsubscribed, (track: any) => {
+        if (Platform.OS === "web" && track?.detach) {
+          try {
+            track.detach().forEach((el: any) => el?.remove?.());
+          } catch {}
+        }
         this.events.onRemoteTrackChange?.(false, false);
         emitTracks();
       });
@@ -217,6 +240,11 @@ export class LiveKitCallSession {
   async disconnect(): Promise<void> {
     this.state.connectionState = "disconnected";
     this.events.onConnectionChange("disconnected");
+    if (Platform.OS === "web" && typeof document !== "undefined") {
+      try {
+        document.querySelectorAll("[data-livekit-track]").forEach((el) => el.remove());
+      } catch {}
+    }
     if (this.room) {
       try {
         await this.room.disconnect();
