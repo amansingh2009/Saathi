@@ -3,22 +3,58 @@ import { StyleSheet, Text, View, Pressable } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
-import { ActionButton } from "@/components/ActionButton";
 import { Screen } from "@/components/Screen";
 import { colors, radii } from "@/theme/tokens";
 import { useI18n } from "@/hooks/useI18n";
 
-const fallbackAudioUrl = "https://ia800201.us.archive.org/21/items/GayatriMantra_201602/Gayatri%20Mantra.mp3";
-const audioUrl = process.env.EXPO_PUBLIC_BHAJAN_URL?.trim() || fallbackAudioUrl;
-const defaultTrackTitle = process.env.EXPO_PUBLIC_BHAJAN_TITLE?.trim() || "Gayatri Mantra";
-const defaultArtist = process.env.EXPO_PUBLIC_BHAJAN_ARTIST?.trim() || "Peaceful Morning Chants";
-const licensedSource = audioUrl && /^https:\/\//i.test(audioUrl) ? audioUrl : fallbackAudioUrl;
+export type BhajanTrack = {
+  id: string;
+  title: string;
+  artist: string;
+  duration: string;
+  type: string;
+  url: string;
+};
 
-const BHAJAN_PLAYLIST = [
-  { id: "1", title: "Gayatri Mantra", duration: "15 mins", type: "Sacred Chant" },
-  { id: "2", title: "Om Jai Jagdish Hare", duration: "8 mins", type: "Morning Aarti" },
-  { id: "3", title: "Hanuman Chalisa", duration: "12 mins", type: "Devotional" },
-  { id: "4", title: "Achutam Keshavam", duration: "6 mins", type: "Krishna Bhajan" },
+const customUrl = process.env.EXPO_PUBLIC_BHAJAN_URL?.trim();
+const customTitle = process.env.EXPO_PUBLIC_BHAJAN_TITLE?.trim();
+const customArtist = process.env.EXPO_PUBLIC_BHAJAN_ARTIST?.trim();
+
+export const BHAJAN_PLAYLIST: BhajanTrack[] = [
+  {
+    id: "1",
+    title: customTitle || "Gayatri Mantra",
+    artist: customArtist || "Peaceful Morning Chants",
+    duration: "15 mins",
+    type: "Sacred Chant",
+    url: customUrl && /^https:\/\//i.test(customUrl)
+      ? customUrl
+      : "https://ia800201.us.archive.org/21/items/GayatriMantra_201602/Gayatri%20Mantra.mp3",
+  },
+  {
+    id: "2",
+    title: "Hanuman Chalisa",
+    artist: "Hari Om Sharan",
+    duration: "12 mins",
+    type: "Devotional Prayer",
+    url: "https://ia800300.us.archive.org/34/items/ShreeHanumanChalisa_886/01ShreeHanumanChalisa.mp3",
+  },
+  {
+    id: "3",
+    title: "Maha Mrityunjaya Mantra",
+    artist: "Sacred Chants of Shiva",
+    duration: "20 mins",
+    type: "Healing Chant",
+    url: "https://ia800303.us.archive.org/16/items/MahaMrityunjayaMantra108Times/Maha%20Mrityunjaya%20Mantra%20108%20times.mp3",
+  },
+  {
+    id: "4",
+    title: "Om Chanting & Meditation",
+    artist: "Divine Resonance",
+    duration: "10 mins",
+    type: "Morning Meditation",
+    url: "https://ia800205.us.archive.org/18/items/OmChantingMeditation_201607/Om%20Chanting.mp3",
+  },
 ];
 
 function formatTime(seconds: number) {
@@ -29,12 +65,21 @@ function formatTime(seconds: number) {
 export default function Bhajan() {
   const router = useRouter();
   const { t } = useI18n();
-  const player = useAudioPlayer(licensedSource);
+  const [currentTrackIndex, setCurrentTrackIndex] = useState(0);
+
+  const currentTrack = BHAJAN_PLAYLIST[currentTrackIndex] || BHAJAN_PLAYLIST[0];
+  const player = useAudioPlayer(currentTrack.url);
   const status = useAudioPlayerStatus(player);
 
-  const [selectedTrack, setSelectedTrack] = useState(defaultTrackTitle);
-
-  useEffect(() => () => player.pause(), [player]);
+  useEffect(() => {
+    return () => {
+      try {
+        player.pause();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [player]);
 
   return (
     <Screen>
@@ -56,95 +101,141 @@ export default function Bhajan() {
         <Text style={styles.subtitle}>{t("bhajanSubtitle")}</Text>
       </View>
 
-      {/* Main Devotional Player Card */}
+      {/* Main Devotional Player Card (Figma Frames 14 & 15: Playing / Paused) */}
       <View style={styles.playerCard}>
         <View style={styles.artBox}>
-          <Ionicons name="musical-notes" size={64} color={colors.blue} />
+          <Ionicons
+            name={status.playing ? "musical-notes" : "musical-note"}
+            size={56}
+            color={colors.blue}
+          />
         </View>
 
-        <Text style={styles.trackTitle}>{selectedTrack}</Text>
-        <Text style={styles.trackArtist}>{defaultArtist}</Text>
+        <Text style={styles.trackTitle}>{currentTrack.title}</Text>
+        <Text style={styles.trackArtist}>{currentTrack.artist}</Text>
 
-        {licensedSource ? (
-          <>
-            <View
-              accessibilityRole="progressbar"
-              accessibilityLabel="Bhajan playback progress"
-              accessibilityValue={{
-                min: 0,
-                max: status.duration || 0,
-                now: status.currentTime || 0,
-              }}
-              style={styles.track}
-            >
-              <View
-                style={[
-                  styles.progress,
-                  {
-                    width: `${
-                      status.duration
-                        ? Math.min(100, (status.currentTime / status.duration) * 100)
-                        : 0
-                    }%`,
-                  },
-                ]}
-              />
-            </View>
+        {/* Progress bar */}
+        <View
+          accessibilityRole="progressbar"
+          accessibilityLabel="Bhajan playback progress"
+          accessibilityValue={{
+            min: 0,
+            max: status.duration || 0,
+            now: status.currentTime || 0,
+          }}
+          style={styles.track}
+        >
+          <View
+            style={[
+              styles.progress,
+              {
+                width: `${
+                  status.duration
+                    ? Math.min(100, (status.currentTime / status.duration) * 100)
+                    : 0
+                }%`,
+              },
+            ]}
+          />
+        </View>
 
-            <Text style={styles.timeText}>
-              {formatTime(status.currentTime)} / {formatTime(status.duration)}
-            </Text>
+        <Text style={styles.timeText}>
+          {formatTime(status.currentTime)} / {formatTime(status.duration)}
+        </Text>
 
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => (status.playing ? player.pause() : player.play())}
-              style={({ pressed }) => [
-                styles.bigPlayButton,
-                pressed && styles.pressedState,
-              ]}
-            >
-              <Ionicons
-                name={status.playing ? "pause" : "play"}
-                size={34}
-                color={colors.white}
-              />
-            </Pressable>
-          </>
-        ) : (
-          <View style={styles.demoPlayerBox}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => alert("Ready to play. Connect your licensed audio feed in settings.")}
-              style={styles.bigPlayButton}
-            >
-              <Ionicons name="play" size={34} color={colors.white} />
-            </Pressable>
-            <Text style={styles.demoNote}>
-              {t("pressPlayListen")}
-            </Text>
-          </View>
-        )}
+        {/* Playback Controls with Prev / Play-Pause / Next */}
+        <View style={styles.controlsRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Previous track"
+            disabled={currentTrackIndex === 0}
+            onPress={() => {
+              if (currentTrackIndex > 0) {
+                setCurrentTrackIndex(currentTrackIndex - 1);
+              }
+            }}
+            style={[
+              styles.skipButton,
+              currentTrackIndex === 0 && styles.skipButtonDisabled,
+            ]}
+          >
+            <Ionicons
+              name="play-skip-back"
+              size={26}
+              color={currentTrackIndex === 0 ? colors.line : colors.ink}
+            />
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={status.playing ? "Pause bhajan" : "Play bhajan"}
+            onPress={() => (status.playing ? player.pause() : player.play())}
+            style={({ pressed }) => [
+              styles.bigPlayButton,
+              pressed && styles.pressedState,
+            ]}
+          >
+            <Ionicons
+              name={status.playing ? "pause" : "play"}
+              size={36}
+              color={colors.white}
+            />
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Next track"
+            disabled={currentTrackIndex === BHAJAN_PLAYLIST.length - 1}
+            onPress={() => {
+              if (currentTrackIndex < BHAJAN_PLAYLIST.length - 1) {
+                setCurrentTrackIndex(currentTrackIndex + 1);
+              }
+            }}
+            style={[
+              styles.skipButton,
+              currentTrackIndex === BHAJAN_PLAYLIST.length - 1 && styles.skipButtonDisabled,
+            ]}
+          >
+            <Ionicons
+              name="play-skip-forward"
+              size={26}
+              color={
+                currentTrackIndex === BHAJAN_PLAYLIST.length - 1
+                  ? colors.line
+                  : colors.ink
+              }
+            />
+          </Pressable>
+        </View>
       </View>
 
       {/* Bhajan Library List (Figma Frame 13) */}
       <View style={styles.playlistSection}>
         <Text style={styles.playlistHeader}>{t("bhajanLibrary")}</Text>
         <View style={styles.playlistItems}>
-          {BHAJAN_PLAYLIST.map((item) => {
-            const isCurrent = selectedTrack === item.title;
+          {BHAJAN_PLAYLIST.map((item, index) => {
+            const isCurrent = currentTrackIndex === index;
             return (
               <Pressable
                 key={item.id}
                 accessibilityRole="button"
-                onPress={() => setSelectedTrack(item.title)}
+                accessibilityLabel={`Play ${item.title}`}
+                onPress={() => {
+                  setCurrentTrackIndex(index);
+                }}
                 style={[
                   styles.playlistCard,
                   isCurrent && styles.playlistCardSelected,
                 ]}
               >
-                <View style={styles.playlistIconCircle}>
+                <View
+                  style={[
+                    styles.playlistIconCircle,
+                    isCurrent && styles.playlistIconCircleActive,
+                  ]}
+                >
                   <Ionicons
-                    name={isCurrent ? "volume-medium" : "musical-note"}
+                    name={isCurrent && status.playing ? "volume-high" : "musical-note"}
                     size={20}
                     color={isCurrent ? colors.blue : colors.muted}
                   />
@@ -163,8 +254,8 @@ export default function Bhajan() {
                   </Text>
                 </View>
                 <Ionicons
-                  name={isCurrent ? "play-circle" : "chevron-forward"}
-                  size={24}
+                  name={isCurrent ? "radio-button-on" : "chevron-forward"}
+                  size={22}
                   color={isCurrent ? colors.blue : colors.muted}
                 />
               </Pressable>
@@ -194,7 +285,7 @@ const styles = StyleSheet.create({
   },
   header: {
     gap: 4,
-    marginVertical: 10,
+    marginVertical: 12,
   },
   title: {
     fontFamily: "Inter_700Bold",
@@ -203,7 +294,7 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontFamily: "Inter_400Regular",
-    fontSize: 18,
+    fontSize: 16,
     color: colors.muted,
   },
   playerCard: {
@@ -215,16 +306,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
     marginVertical: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
   },
   artBox: {
-    width: 140,
-    height: 140,
-    borderRadius: 24,
+    width: 96,
+    height: 96,
+    borderRadius: 48,
     backgroundColor: colors.pale,
     alignItems: "center",
     justifyContent: "center",
@@ -245,19 +331,37 @@ const styles = StyleSheet.create({
   track: {
     width: "100%",
     height: 8,
+    backgroundColor: colors.pale,
     borderRadius: 4,
-    backgroundColor: colors.line,
     overflow: "hidden",
     marginTop: 8,
   },
   progress: {
-    height: 8,
+    height: "100%",
     backgroundColor: colors.blue,
   },
   timeText: {
     fontFamily: "Inter_500Medium",
     fontSize: 14,
     color: colors.muted,
+  },
+  controlsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 24,
+    marginTop: 8,
+  },
+  skipButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.pale,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  skipButtonDisabled: {
+    opacity: 0.4,
   },
   bigPlayButton: {
     width: 72,
@@ -266,32 +370,20 @@ const styles = StyleSheet.create({
     backgroundColor: colors.blue,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 6,
     shadowColor: colors.blue,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.25,
     shadowRadius: 8,
     elevation: 4,
   },
-  demoPlayerBox: {
-    alignItems: "center",
-    gap: 12,
-    marginTop: 8,
-  },
-  demoNote: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    color: colors.muted,
-    textAlign: "center",
-  },
   playlistSection: {
+    marginTop: 16,
+    marginBottom: 24,
     gap: 12,
-    marginTop: 14,
-    marginBottom: 20,
   },
   playlistHeader: {
     fontFamily: "Inter_700Bold",
-    fontSize: 19,
+    fontSize: 20,
     color: colors.ink,
   },
   playlistItems: {
@@ -300,24 +392,27 @@ const styles = StyleSheet.create({
   playlistCard: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
     backgroundColor: colors.white,
     borderRadius: radii.cardMin,
     borderWidth: 1,
     borderColor: colors.line,
     padding: 16,
+    gap: 14,
   },
   playlistCardSelected: {
-    backgroundColor: colors.pale,
-    borderColor: "#D4E2FC",
+    borderColor: colors.blue,
+    backgroundColor: "#F4F7FE",
   },
   playlistIconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: colors.background,
     alignItems: "center",
     justifyContent: "center",
+  },
+  playlistIconCircleActive: {
+    backgroundColor: colors.pale,
   },
   playlistInfoCol: {
     flex: 1,
@@ -333,10 +428,10 @@ const styles = StyleSheet.create({
   },
   playlistItemMeta: {
     fontFamily: "Inter_400Regular",
-    fontSize: 13,
+    fontSize: 14,
     color: colors.muted,
   },
   pressedState: {
-    transform: [{ scale: 0.96 }],
+    transform: [{ scale: 0.95 }],
   },
 });
