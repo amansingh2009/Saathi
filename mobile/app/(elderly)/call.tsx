@@ -6,6 +6,7 @@ import {
   Pressable,
   ActivityIndicator,
   Alert,
+  Platform,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { colors, radii, touchTargets } from "@/theme/tokens";
@@ -156,6 +157,44 @@ export default function ActiveCallScreen() {
     };
   }, [callId, handleExit]);
 
+  // Mount web video elements directly into DOM containers when on web
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
+
+    if (trackRefs.remoteTrackRef?.publication?.track) {
+      const container = document.getElementById("livekit-remote-video");
+      if (container) {
+        container.innerHTML = "";
+        try {
+          const el = trackRefs.remoteTrackRef.publication.track.attach();
+          el.style.width = "100%";
+          el.style.height = "100%";
+          el.style.objectFit = "cover";
+          container.appendChild(el);
+        } catch (e) {
+          console.warn("Could not attach remote web video track:", e);
+        }
+      }
+    }
+
+    if (trackRefs.localTrackRef?.publication?.track && !isCameraOff) {
+      const container = document.getElementById("livekit-local-video");
+      if (container) {
+        container.innerHTML = "";
+        try {
+          const el = trackRefs.localTrackRef.publication.track.attach();
+          el.style.width = "100%";
+          el.style.height = "100%";
+          el.style.objectFit = "cover";
+          el.style.transform = isFrontCamera ? "scaleX(-1)" : "none";
+          container.appendChild(el);
+        } catch (e) {
+          console.warn("Could not attach local web video track:", e);
+        }
+      }
+    }
+  }, [trackRefs, isCameraOff, isFrontCamera]);
+
   // End Call Handler
   const handleEndCall = async () => {
     if (timerRef.current) {
@@ -257,7 +296,7 @@ export default function ActiveCallScreen() {
                 </View>
               </View>
             ) : (
-              <View style={styles.remoteVideoArea}>
+              <View style={styles.remoteVideoArea} nativeID="livekit-remote-video">
                 <View style={styles.avatarBig}>
                   <Text style={styles.avatarBigText}>{peerName.charAt(0).toUpperCase()}</Text>
                 </View>
@@ -269,7 +308,7 @@ export default function ActiveCallScreen() {
             )}
 
             {/* Self Camera Inset */}
-            <View style={styles.selfVideoInset}>
+            <View style={styles.selfVideoInset} nativeID="livekit-local-video">
               {NativeVideoTrack && trackRefs.localTrackRef && !isCameraOff ? (
                 <NativeVideoTrack
                   trackRef={trackRefs.localTrackRef}
