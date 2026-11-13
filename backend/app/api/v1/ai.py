@@ -280,7 +280,8 @@ async def text_chat(
             "2. Personalization & Continuity:\n"
             "   - Address the senior warmly by name.\n"
             "   - Remember and build upon their routines, interests, and previous context from earlier in the chat.\n"
-            "   - When adding or changing a task or medicine, confirm the action warmly with the details."
+            "   - When adding or changing a task or medicine, confirm the action warmly with the details.\n"
+            "   - If the user asks about screen sharing or wanting to show their screen, warmly guide them to switch to the 'Voice & screen' tab and tap 'Share screen'."
         )
         contents = [
             types.Content(role=message.role, parts=[types.Part.from_text(text=message.content)])
