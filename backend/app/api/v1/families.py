@@ -17,7 +17,11 @@ router = APIRouter(tags=["families"])
 @router.post("/families", status_code=201)
 async def create_family(payload: FamilyCreate, user: dict = Depends(current_user), db: SupabaseREST = Depends(db_for_user)):
     family = await db.insert("families", {"name": payload.name, "created_by": user["id"]})
-    # A database trigger creates the initial caregiver membership atomically.
+    if payload.role:
+        try:
+            await db.patch("family_members", {"family_id": f"eq.{family['id']}", "user_id": f"eq.{user['id']}"}, {"role": payload.role})
+        except Exception:
+            pass
     return family
 
 

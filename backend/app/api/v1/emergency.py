@@ -8,7 +8,7 @@ from app.core.auth import current_user
 from app.core.config import get_settings
 from app.core.errors import ServiceError
 from app.core.supabase_rest import SupabaseREST
-from app.schemas.common import EmergencyCreate
+from app.schemas.common import EmergencyCreate, EmergencyMediaUpdate
 
 router = APIRouter(prefix="/emergency", tags=["emergency"])
 
@@ -74,12 +74,42 @@ async def _notify_caregivers(event: dict, db: SupabaseREST) -> dict:
 
 @router.post("", status_code=201)
 async def create_emergency(payload: EmergencyCreate, user: dict = Depends(current_user), db: SupabaseREST = Depends(db_for_user)):
-    event = await db.insert("emergency_events", {
-        "family_id": str(payload.family_id), "elderly_user_id": user["id"],
-        "message": payload.message, "status": "open",
-    })
+    insert_data = {
+        "family_id": str(payload.family_id),
+        "elderly_user_id": user["id"],
+        "message": payload.message,
+        "status": "open",
+    }
+    if payload.front_camera_url is not None:
+        insert_data["front_camera_url"] = payload.front_camera_url
+    if payload.back_camera_url is not None:
+        insert_data["back_camera_url"] = payload.back_camera_url
+    if payload.screenshot_url is not None:
+        insert_data["screenshot_url"] = payload.screenshot_url
+
+    event = await db.insert("emergency_events", insert_data)
     delivery = await _notify_caregivers(event, db)
     return {"event": event, "notification_delivery": delivery}
+
+
+@router.patch("/{event_id}/media")
+async def update_emergency_media(
+    event_id: UUID,
+    payload: EmergencyMediaUpdate,
+    user: dict = Depends(current_user),
+    db: SupabaseREST = Depends(db_for_user),
+):
+    update_data = {}
+    if payload.front_camera_url is not None:
+        update_data["front_camera_url"] = payload.front_camera_url
+    if payload.back_camera_url is not None:
+        update_data["back_camera_url"] = payload.back_camera_url
+    if payload.screenshot_url is not None:
+        update_data["screenshot_url"] = payload.screenshot_url
+    if not update_data:
+        return {"status": "no_change"}
+    updated = await db.patch("emergency_events", {"id": f"eq.{event_id}"}, update_data)
+    return updated
 
 
 @router.get("")

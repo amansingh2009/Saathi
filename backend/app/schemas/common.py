@@ -13,6 +13,7 @@ class ProfileUpdate(BaseModel):
 
 class FamilyCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
+    role: Literal["elderly", "caregiver"] | None = None
 
 
 class FamilyInvite(BaseModel):
@@ -75,7 +76,16 @@ class GuidanceCreate(BaseModel):
 
 class EmergencyCreate(BaseModel):
     family_id: UUID
-    message: str | None = Field(default=None, max_length=500)
+    message: str | None = Field(default=None, max_length=5000)
+    front_camera_url: str | None = None
+    back_camera_url: str | None = None
+    screenshot_url: str | None = None
+
+
+class EmergencyMediaUpdate(BaseModel):
+    front_camera_url: str | None = None
+    back_camera_url: str | None = None
+    screenshot_url: str | None = None
 
 
 class DeviceRegistration(BaseModel):

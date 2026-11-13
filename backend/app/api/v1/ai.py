@@ -318,14 +318,15 @@ async def text_chat(
         async def generate_reply():
             nonlocal active_model
             model_choices = list(dict.fromkeys((
+                "gemini-3-flash-preview",
                 active_model,
                 settings.gemini_text_model,
                 fallback_model,
                 "gemini-3.1-flash-lite",
                 "gemini-flash-lite-latest",
-                "gemini-3-flash-preview",
                 "gemini-3.5-flash-lite",
             )))
+            last_exc = None
             for index, model_name in enumerate(model_choices):
                 try:
                     result = await run_in_threadpool(
@@ -337,23 +338,12 @@ async def text_chat(
                     active_model = model_name
                     return result
                 except Exception as exc:
-                    status_code = getattr(exc, "status_code", None)
-                    exc_str = str(exc).lower()
-                    is_transient = (
-                        status_code in {429, 500, 502, 503, 504}
-                        or "503" in exc_str
-                        or "429" in exc_str
-                        or "high demand" in exc_str
-                        or "timeout" in exc_str
-                        or "overloaded" in exc_str
-                        or "resource exhausted" in exc_str
-                        or "unavailable" in exc_str
-                    )
-                    logger.warning("Gemini text chat model %s failed (transient=%s): %s", model_name, is_transient, exc)
-                    if not is_transient or index == len(model_choices) - 1:
-                        if index == len(model_choices) - 1:
-                            raise ServiceError(502, "Saathi could not reply right now. Please try again.") from exc
-                        raise
+                    last_exc = exc
+                    logger.warning("Gemini text chat model %s failed: %s", model_name, exc)
+                    if index == len(model_choices) - 1:
+                        raise ServiceError(502, "Saathi could not reply right now. Please try again.") from exc
+            if last_exc:
+                raise ServiceError(502, "Saathi could not reply right now. Please try again.") from last_exc
             raise ServiceError(502, "Saathi could not reply right now. Please try again.")
 
         response = await generate_reply()

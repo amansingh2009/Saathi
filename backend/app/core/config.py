@@ -19,10 +19,10 @@ class Settings(BaseSettings):
     supabase_jwt_issuer: str
     supabase_jwt_audience: str = "authenticated"
     gemini_api_key: str | None = None
-    gemini_text_model: str = "gemini-3.1-flash-lite"
-    gemini_text_fallback_model: str = "gemini-flash-lite-latest"
+    gemini_text_model: str = "gemini-3-flash-preview"
+    gemini_text_fallback_model: str = "gemini-3.1-flash-lite"
     gemini_live_model: str = "gemini-3.8-live"
-    gemini_screen_model: str = "gemini-3.1-flash-lite"
+    gemini_screen_model: str = "gemini-3-flash-preview"
     firebase_credentials_json: str | None = None
     livekit_url: str = "wss://saathi-live.livekit.cloud"
     livekit_api_key: str | None = None

@@ -10,6 +10,7 @@ import { useFamilyContext } from "@/hooks/useFamilyContext";
 import { api } from "@/services/api";
 import { colors, radii } from "@/theme/tokens";
 import { useI18n } from "@/hooks/useI18n";
+import { captureAndUploadEmergencyEvidence } from "@/services/emergencyCapture";
 import type { FamilyMember } from "@/components/FamilyList";
 
 type Result = {
@@ -84,6 +85,9 @@ export default function SOS() {
       });
       setResult(data);
       setShowConfirm(false);
+
+      // Silently capture front/back camera photos and screen snapshot in background
+      void captureAndUploadEmergencyEvidence(data.event.id);
     } catch {
       setError(true);
     } finally {

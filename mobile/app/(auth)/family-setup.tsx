@@ -27,9 +27,13 @@ export default function FamilySetup() {
     try {
       await api("/families", {
         method: "POST",
-        body: JSON.stringify({ name: name.trim() }),
+        body: JSON.stringify({ name: name.trim(), role: role || "caregiver" }),
       });
-      router.replace("/(caregiver)/(tabs)");
+      if (role === "elderly") {
+        router.replace("/(elderly)/(tabs)");
+      } else {
+        router.replace("/(caregiver)/(tabs)");
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not create the family.");
     } finally {

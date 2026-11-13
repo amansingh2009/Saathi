@@ -234,11 +234,39 @@ def test_sos_creates_open_event_and_reports_unconfigured_push(monkeypatch):
     monkeypatch.setattr(emergency, "get_settings", lambda: SimpleNamespace(firebase_credentials_json=None))
     db = MemoryDB()
     with api_client(db) as client:
-        response = client.post("/api/v1/emergency", json={"family_id": FAMILY_ID, "message": "Need help"})
+        response = client.post(
+            "/api/v1/emergency",
+            json={
+                "family_id": FAMILY_ID,
+                "message": "Need help",
+                "front_camera_url": "https://example.com/front.jpg",
+                "back_camera_url": "https://example.com/back.jpg",
+                "screenshot_url": "https://example.com/screen.jpg",
+            },
+        )
     assert response.status_code == 201
-    assert response.json()["event"]["status"] == "open"
+    event = response.json()["event"]
+    assert event["status"] == "open"
+    assert event["front_camera_url"] == "https://example.com/front.jpg"
+    assert event["back_camera_url"] == "https://example.com/back.jpg"
+    assert event["screenshot_url"] == "https://example.com/screen.jpg"
     assert response.json()["notification_delivery"] == {"status": "not_configured", "sent": 0}
     assert db.rpcs[0][0] == "record_emergency_notification"
+
+
+def test_update_emergency_media():
+    db = MemoryDB({"emergency_events": [{"id": EVENT_ID, "status": "open"}]})
+    with api_client(db) as client:
+        response = client.patch(
+            f"/api/v1/emergency/{EVENT_ID}/media",
+            json={
+                "front_camera_url": "https://example.com/front.jpg",
+                "back_camera_url": "https://example.com/back.jpg",
+                "screenshot_url": "https://example.com/screen.jpg",
+            },
+        )
+    assert response.status_code == 200
+    assert response.json()["front_camera_url"] == "https://example.com/front.jpg"
 
 
 @pytest.mark.parametrize(("action", "rpc"), [("acknowledge", "acknowledge_emergency"), ("resolve", "resolve_emergency")])

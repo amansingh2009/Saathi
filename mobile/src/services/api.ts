@@ -3,12 +3,11 @@ import Constants from "expo-constants";
 import { Platform } from "react-native";
 
 export function getBaseUrl(): string {
-  const envUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
   if (Platform.OS === "web" && typeof window !== "undefined") {
-    if (!envUrl || envUrl.includes("10.0.2.2") || envUrl.includes("localhost") || envUrl.includes("127.0.0.1")) {
-      return `${window.location.protocol}//${window.location.hostname}:8765/api/v1`;
-    }
+    const host = window.location.hostname || "localhost";
+    return `${window.location.protocol}//${host}:8765/api/v1`;
   }
+  const envUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
   // If running in Expo Go or dev client on a physical device, detect host IP from Metro connection:
   const hostUri = Constants.expoConfig?.hostUri ?? (Constants as unknown as { manifest2?: { extra?: { expoGo?: { debuggerHost?: string } } } })?.manifest2?.extra?.expoGo?.debuggerHost;
   if (hostUri) {

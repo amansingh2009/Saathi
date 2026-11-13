@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, StyleSheet, Text, View, Pressable, Linking } from "react-native";
+import { Alert, StyleSheet, Text, View, Pressable, Linking, Image, Modal } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { ActionButton } from "@/components/ActionButton";
 import { LoadingState } from "@/components/LoadingState";
@@ -20,6 +20,9 @@ type Emergency = {
   acknowledged_at?: string | null;
   acknowledged_by?: string | null;
   resolved_at?: string | null;
+  front_camera_url?: string | null;
+  back_camera_url?: string | null;
+  screenshot_url?: string | null;
 };
 
 type Notification = {
@@ -36,6 +39,7 @@ export default function Alerts() {
 
   const [filter, setFilter] = useState<"all" | "active" | "resolved">("all");
   const [actingId, setActingId] = useState<string | null>(null);
+  const [previewImage, setPreviewImage] = useState<{ url: string; title: string } | null>(null);
 
   const alerts = useQuery({
     queryKey: ["emergency", id],
@@ -244,6 +248,60 @@ export default function Alerts() {
                   </View>
                 ) : null}
 
+                {/* Evidence Media Section (Front Camera, Back Camera, Senior Screenshot) */}
+                {alert.front_camera_url || alert.back_camera_url || alert.screenshot_url ? (
+                  <View style={styles.evidenceContainer}>
+                    <View style={styles.evidenceHeaderRow}>
+                      <Ionicons name="images-outline" size={16} color={colors.blue} />
+                      <Text style={styles.evidenceHeading}>Live Evidence & Multi-Capture</Text>
+                    </View>
+                    <View style={styles.evidenceGrid}>
+                      {alert.front_camera_url ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="View Front Camera Capture"
+                          style={styles.evidenceItem}
+                          onPress={() => setPreviewImage({ url: alert.front_camera_url!, title: "Senior Front Camera" })}
+                        >
+                          <Image source={{ uri: alert.front_camera_url }} style={styles.evidenceThumb} />
+                          <View style={styles.evidenceBadge}>
+                            <Ionicons name="camera" size={11} color={colors.white} />
+                            <Text style={styles.evidenceBadgeText}>Front Camera</Text>
+                          </View>
+                        </Pressable>
+                      ) : null}
+                      {alert.back_camera_url ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="View Back Camera Capture"
+                          style={styles.evidenceItem}
+                          onPress={() => setPreviewImage({ url: alert.back_camera_url!, title: "Senior Back Camera" })}
+                        >
+                          <Image source={{ uri: alert.back_camera_url }} style={styles.evidenceThumb} />
+                          <View style={styles.evidenceBadge}>
+                            <Ionicons name="camera-reverse" size={11} color={colors.white} />
+                            <Text style={styles.evidenceBadgeText}>Back Camera</Text>
+                          </View>
+                        </Pressable>
+                      ) : null}
+                      {alert.screenshot_url ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="View Senior Screen Screenshot"
+                          style={styles.evidenceItem}
+                          onPress={() => setPreviewImage({ url: alert.screenshot_url!, title: "Senior Screen Snapshot" })}
+                        >
+                          <Image source={{ uri: alert.screenshot_url }} style={styles.evidenceThumb} />
+                          <View style={styles.evidenceBadge}>
+                            <Ionicons name="phone-portrait" size={11} color={colors.white} />
+                            <Text style={styles.evidenceBadgeText}>Screen Snapshot</Text>
+                          </View>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  </View>
+                ) : null}
+
                 {/* Actions */}
                 <View style={styles.cardActions}>
                   {isOpen ? (
@@ -295,6 +353,37 @@ export default function Alerts() {
           </Text>
         </View>
       )}
+
+      {/* Evidence Fullscreen Preview Modal */}
+      <Modal
+        visible={!!previewImage}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewImage(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{previewImage?.title}</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close image preview"
+                onPress={() => setPreviewImage(null)}
+                style={styles.modalCloseBtn}
+              >
+                <Ionicons name="close" size={24} color={colors.ink} />
+              </Pressable>
+            </View>
+            {previewImage?.url ? (
+              <Image
+                source={{ uri: previewImage.url }}
+                style={styles.modalImage}
+                resizeMode="contain"
+              />
+            ) : null}
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -501,5 +590,98 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 22,
     maxWidth: 280,
+  },
+  evidenceContainer: {
+    backgroundColor: colors.pale,
+    borderRadius: radii.control,
+    padding: 12,
+    gap: 10,
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  evidenceHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  evidenceHeading: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: colors.ink,
+  },
+  evidenceGrid: {
+    flexDirection: "row",
+    gap: 10,
+    flexWrap: "wrap",
+  },
+  evidenceItem: {
+    flex: 1,
+    minWidth: 90,
+    height: 110,
+    borderRadius: radii.control,
+    overflow: "hidden",
+    position: "relative",
+    backgroundColor: colors.ink,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  evidenceThumb: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
+  },
+  evidenceBadge: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "rgba(15, 23, 42, 0.75)",
+    paddingVertical: 3,
+    paddingHorizontal: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  evidenceBadgeText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 10,
+    color: colors.white,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.75)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 480,
+    backgroundColor: colors.white,
+    borderRadius: radii.cardMin,
+    padding: 16,
+    gap: 12,
+    maxHeight: "85%",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  modalTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 16,
+    color: colors.ink,
+  },
+  modalCloseBtn: {
+    padding: 4,
+  },
+  modalImage: {
+    width: "100%",
+    height: 380,
+    borderRadius: radii.control,
+    backgroundColor: colors.pale,
   },
 });
