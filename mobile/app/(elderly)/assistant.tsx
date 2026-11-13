@@ -380,8 +380,7 @@ export default function Assistant({ initialMode: propInitialMode }: { initialMod
       ws.onerror = () => {
         try { stream.stream.stop(); } catch { /* already stopped */ }
         audioChunks.current = [];
-        player.current?.pause();
-        if (player.current) void player.current.seekTo(0);
+        safePausePlayer();
         if (screenShareStartedHere.current) { screenShareStartedHere.current = false; void screenCapture?.stop(); }
         stopBrowserCapture();
         setSharingScreen(false); setMessage("Connection interrupted. Please try again."); setConnected(false); setConnecting(false);
@@ -389,8 +388,7 @@ export default function Assistant({ initialMode: propInitialMode }: { initialMod
       ws.onclose = () => {
         try { stream.stream.stop(); } catch { /* already stopped */ }
         audioChunks.current = [];
-        player.current?.pause();
-        if (player.current) void player.current.seekTo(0);
+        safePausePlayer();
         if (screenShareStartedHere.current) { screenShareStartedHere.current = false; void screenCapture?.stop(); }
         stopBrowserCapture();
         setSharingScreen(false);
