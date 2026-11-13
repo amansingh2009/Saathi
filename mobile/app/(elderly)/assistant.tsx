@@ -123,7 +123,7 @@ export default function Assistant({ initialMode: propInitialMode }: { initialMod
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [message, setMessage] = useState("Tap start and speak naturally.");
-  const [transcript, setTranscript] = useState("");
+  const [recentCaptions, setRecentCaptions] = useState<string[]>([]);
   const [liveCaption, setLiveCaption] = useState("");
   const [tool, setTool] = useState<ToolCall | null>(null);
   const [toolLabel, setToolLabel] = useState("");
@@ -277,13 +277,15 @@ export default function Assistant({ initialMode: propInitialMode }: { initialMod
       if (interimInput) setLiveCaption(formatLiveCaption("You", interimInput));
       if (server?.inputTranscription?.text) {
         const text = server.inputTranscription.text;
-        setTranscript((old) => `${old}\n${formatLiveCaption("You", text)}`.trim());
-        setLiveCaption(formatLiveCaption("You", text));
+        const line = formatLiveCaption("You", text);
+        setRecentCaptions((old) => [...old, line].slice(-4));
+        setLiveCaption("");
       }
       if (server?.outputTranscription?.text) {
         const text = server.outputTranscription.text;
-        setTranscript((old) => `${old}\n${formatLiveCaption("Saathi", text)}`.trim());
-        setLiveCaption(formatLiveCaption("Saathi", text));
+        const line = formatLiveCaption("Saathi", text);
+        setRecentCaptions((old) => [...old, line].slice(-4));
+        setLiveCaption("");
       }
       for (const part of server?.modelTurn?.parts ?? []) {
         if (part.inlineData?.mimeType?.startsWith("audio/pcm")) audioChunks.current.push(part.inlineData.data);
@@ -343,7 +345,7 @@ export default function Assistant({ initialMode: propInitialMode }: { initialMod
   }, [stream.stream, t]);
 
   const begin = useCallback(async () => {
-    setConnecting(true); streamStarted.current = false; audioChunks.current = []; setTranscript(""); setLiveCaption(""); setMessage("Connecting securely…");
+    setConnecting(true); streamStarted.current = false; audioChunks.current = []; setRecentCaptions([]); setLiveCaption(""); setMessage("Connecting securely…");
     try {
       const familyContext = family.data;
       const familyId = familyContext?.family?.id;
@@ -673,12 +675,25 @@ export default function Assistant({ initialMode: propInitialMode }: { initialMod
         <Text style={styles.messageText}>{message}</Text>
       </View>
 
-      {/* Live Transcript (if available) */}
-      {transcript || liveCaption ? (
+      {/* Live Captions (Latest 3-4 entries to prevent UI flooding) */}
+      {recentCaptions.length > 0 || liveCaption ? (
         <Panel variant="bordered" style={styles.transcriptPanel}>
-          <Text style={styles.transcriptHeader}>{liveCaption ? t("liveCaption") : t("conversation")}</Text>
-          {liveCaption ? <Text style={styles.liveCaption} accessibilityLiveRegion="polite">{liveCaption}</Text> : null}
-          {transcript ? <Text style={styles.transcript}>{transcript}</Text> : null}
+          <View style={styles.captionHeaderRow}>
+            <Ionicons name="chatbubbles-outline" size={18} color={colors.blue} />
+            <Text style={styles.transcriptHeader}>{t("liveCaption")}</Text>
+          </View>
+          <View style={styles.captionsList}>
+            {recentCaptions.map((caption, idx) => (
+              <Text key={idx} style={styles.transcriptLine}>
+                {caption}
+              </Text>
+            ))}
+            {liveCaption ? (
+              <Text style={styles.liveCaption} accessibilityLiveRegion="polite">
+                {liveCaption}
+              </Text>
+            ) : null}
+          </View>
         </Panel>
       ) : null}
 
@@ -701,7 +716,7 @@ export default function Assistant({ initialMode: propInitialMode }: { initialMod
       ) : null}
 
       {/* "Try saying..." Suggestions List */}
-      {!connected && !transcript ? (
+      {!connected && recentCaptions.length === 0 ? (
         <View style={styles.suggestionsSection}>
           <Text style={styles.suggestionsHeader}>{t("trySaying")}</Text>
           <View style={styles.suggestionsList}>
@@ -1031,12 +1046,20 @@ const styles = StyleSheet.create({
   transcriptPanel: {
     gap: 8,
   },
+  captionHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  captionsList: {
+    gap: 6,
+  },
   transcriptHeader: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 16,
     color: colors.ink,
   },
-  transcript: {
+  transcriptLine: {
     fontFamily: "Inter_400Regular",
     fontSize: 16,
     lineHeight: 24,
@@ -1044,8 +1067,8 @@ const styles = StyleSheet.create({
   },
   liveCaption: {
     fontFamily: "Inter_600SemiBold",
-    fontSize: 19,
-    lineHeight: 28,
+    fontSize: 18,
+    lineHeight: 26,
     color: colors.blue,
   },
   toolPanel: {
