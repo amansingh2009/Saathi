@@ -467,6 +467,7 @@ def test_ai_tool_create_medicine():
                     "name": "Amlodipine",
                     "dosage": "5mg",
                     "scheduled_time": "08:00",
+                    "days_of_week": [1, 2, 3, 4, 5, 6, 7],
                     "family_id": FAMILY_ID,
                 },
                 "confirmed": True,
@@ -477,6 +478,8 @@ def test_ai_tool_create_medicine():
     tables = [t for t, _ in db.inserts]
     assert "medications" in tables
     assert "medication_schedules" in tables
+    sched_row = [row for t, row in db.inserts if t == "medication_schedules"][0]
+    assert sched_row["days_of_week"] == [0, 1, 2, 3, 4, 5, 6]
 
 
 def test_ai_tool_update_user_interests():
