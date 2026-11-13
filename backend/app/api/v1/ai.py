@@ -80,7 +80,7 @@ AI_COMPANION_TOOLS = [
                 "days_of_week": {
                     "type": "ARRAY",
                     "items": {"type": "INTEGER"},
-                    "description": "Days of week from 1 (Monday) to 7 (Sunday). Defaults to all 7 days.",
+                    "description": "Days of week from 0 (Sunday) to 6 (Saturday). Defaults to all 7 days [0, 1, 2, 3, 4, 5, 6].",
                 },
                 "family_id": {"type": "STRING", "description": "Optional family ID. Automatically resolved by system."},
             },
@@ -482,7 +482,8 @@ async def execute_tool(payload: AIToolExecution, user: dict = Depends(current_us
             parts = raw_time.split(":")
             if len(parts) == 2:
                 time_str = f"{int(parts[0]):02d}:{int(parts[1]):02d}"
-                days = args.get("days_of_week") or [1, 2, 3, 4, 5, 6, 7]
+                raw_days = args.get("days_of_week") or [0, 1, 2, 3, 4, 5, 6]
+                days = sorted(list(set(int(d) % 7 for d in raw_days if isinstance(d, (int, float, str)) and str(d).isdigit()))) or [0, 1, 2, 3, 4, 5, 6]
                 try:
                     sched_result = await db.insert("medication_schedules", {
                         "medication_id": str(med["id"]),
