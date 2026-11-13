@@ -347,17 +347,18 @@ export default function Assistant({ initialMode: propInitialMode }: { initialMod
   const begin = useCallback(async () => {
     setConnecting(true); streamStarted.current = false; audioChunks.current = []; setRecentCaptions([]); setLiveCaption(""); setMessage("Connecting securely…");
     try {
-      const familyContext = family.data;
-      const familyId = familyContext?.family?.id;
-      const memberId = familyContext?.membership?.user_id;
-
-      const familyPromptSnippet = familyId && memberId
-        ? ` The active family_id is ${familyId}; the signed-in user's id is ${memberId}. Use these when reading or creating tasks. Only assign tasks to the signed-in user unless the user identifies a known family member.`
-        : ` The user is not yet connected to a family group. If the user asks about family tasks or medicines, kindly explain that a family group has not been connected yet, and guide them to connect with their family from the Home screen. You can still converse warmly, tell stories, discuss devotional or spiritual topics, and answer everyday questions.`;
-
       const permission = await requestRecordingPermissionsAsync();
       if (!permission.granted) throw new Error("Allow microphone access to talk with Saathi.");
-      const token = await api<{ token: string; model: string }>("/ai/live-token", { method: "POST" });
+      const token = await api<{ token: string; model: string; family_id?: string; user_id?: string }>("/ai/live-token", { method: "POST" });
+
+      const familyContext = family.data;
+      const familyId = familyContext?.family?.id || token.family_id;
+      const memberId = familyContext?.membership?.user_id || token.user_id;
+
+      const familyPromptSnippet = familyId
+        ? ` The active family_id is ${familyId}; the signed-in user's id is ${memberId || ""}. Use this family_id for all tools. NEVER ask the user or senior for a family code, family ID, or invite code; all family access is already granted automatically.`
+        : ` The user is not yet connected to a family group. If the user asks about family tasks or medicines, kindly explain that a family group has not been connected yet, and guide them to connect with their family from the Home screen. You can still converse warmly, tell stories, discuss devotional or spiritual topics, and answer everyday questions.`;
+
       const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
       const ws = new WebSocket(`wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained?access_token=${encodeURIComponent(token.token)}`);
       ws.binaryType = "arraybuffer";
@@ -370,7 +371,7 @@ export default function Assistant({ initialMode: propInitialMode }: { initialMod
             inputAudioTranscription: {},
             outputAudioTranscription: {},
             realtimeInputConfig: { activityHandling: "START_OF_ACTIVITY_INTERRUPTS" },
-            systemInstruction: { parts: [{ text: `You are Saathi, a kind voice companion for older adults. Today is ${today} in Asia/Kolkata. If the user asks if they can share their screen or wants to show their screen, warmly tell them: "Yes! Tap the Share screen button below to start sharing your screen with me." When the user explicitly starts screen sharing, inspect incoming screen images and give one calm, short step at a time. The screen may contain private information; discuss only what helps with the user's request and never repeat secrets, OTPs, PINs, passwords, or banking credentials. ${languageInstruction[language]}${familyPromptSnippet} If asked about tasks, use get_task_summary. If asked about a medicine schedule, use get_medicine_summary. If asked which medicines the user took or skipped, determine the requested dates, ask a brief follow-up if the range is unclear, then use get_medicine_history with inclusive YYYY-MM-DD dates and Asia/Kolkata timezone. Report only recorded results; never infer that an unrecorded dose was taken. Call one tool at a time. Give one short instruction at a time. Never ask for passwords, OTPs, PINs or banking credentials. Never change medicine dosage. Ask before changing data. ${languageInstruction[language]}` }] },
+            systemInstruction: { parts: [{ text: `You are Saathi, a kind voice companion for older adults. Today is ${today} in Asia/Kolkata. If the user asks if they can share their screen or wants to show their screen, warmly tell them: "Yes! Tap the Share screen button below to start sharing your screen with me." When the user explicitly starts screen sharing, inspect incoming screen images and give one calm, short step at a time. The screen may contain private information; discuss only what helps with the user's request and never repeat secrets, OTPs, PINs, passwords, or banking credentials. ${languageInstruction[language]}${familyPromptSnippet} If asked about tasks, use get_task_summary. If asked about a medicine schedule, use get_medicine_summary. If asked which medicines the user took or skipped, determine the requested dates, ask a brief follow-up if the range is unclear, then use get_medicine_history with inclusive YYYY-MM-DD dates and Asia/Kolkata timezone. Report only recorded results; never infer that an unrecorded dose was taken. Call one tool at a time. Give one short instruction at a time. Never ask for passwords, OTPs, PINs, banking credentials, family codes, or family IDs. Never change medicine dosage. Ask before changing data. ${languageInstruction[language]}` }] },
             tools: liveTools,
           }
         }));
