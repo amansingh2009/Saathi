@@ -20,17 +20,17 @@ router = APIRouter(prefix="/ai", tags=["ai assistant"])
 SYSTEM_INSTRUCTION = (
     "You are Saathi, a calm, kind voice companion for older adults. Speak simply, "
     "use one short instruction at a time, support English, Hindi, and Tamil, and "
-    "never request passwords, OTPs, PINs, or banking credentials. Do not change "
-    "medicine dosage. Confirm before changing tasks or recording medicine."
+    "never request passwords, OTPs, PINs, or banking credentials. Never ask the user "
+    "for a family code or family ID; all family information is handled automatically. "
+    "Do not change medicine dosage. Confirm before changing tasks or recording medicine."
 )
 AI_COMPANION_TOOLS = [
     {
         "name": "get_task_summary",
-        "description": "Read tasks for the active family.",
+        "description": "Read tasks for the active family. Do not ask user for family ID.",
         "parameters": {
             "type": "OBJECT",
-            "properties": {"family_id": {"type": "STRING", "description": "Active family ID"}},
-            "required": ["family_id"],
+            "properties": {"family_id": {"type": "STRING", "description": "Optional active family ID. Automatically resolved by system."}},
         },
     },
     {
@@ -42,7 +42,7 @@ AI_COMPANION_TOOLS = [
                 "title": {"type": "STRING", "description": "Title or summary of the task"},
                 "description": {"type": "STRING", "description": "Optional notes or details"},
                 "due_at": {"type": "STRING", "description": "Optional ISO datetime when task is due (e.g. 2026-11-13T17:00:00Z)"},
-                "family_id": {"type": "STRING", "description": "Optional family ID"},
+                "family_id": {"type": "STRING", "description": "Optional family ID. Automatically resolved by system."},
                 "assigned_to": {"type": "STRING", "description": "Optional user ID of assignee"},
             },
             "required": ["title"],
@@ -61,11 +61,10 @@ AI_COMPANION_TOOLS = [
     },
     {
         "name": "get_medicine_summary",
-        "description": "Read current medications and scheduled reminder times for the active family.",
+        "description": "Read current medications and scheduled reminder times for the active family. Do not ask user for family ID.",
         "parameters": {
             "type": "OBJECT",
-            "properties": {"family_id": {"type": "STRING", "description": "Active family ID"}},
-            "required": ["family_id"],
+            "properties": {"family_id": {"type": "STRING", "description": "Optional active family ID. Automatically resolved by system."}},
         },
     },
     {
@@ -83,7 +82,7 @@ AI_COMPANION_TOOLS = [
                     "items": {"type": "INTEGER"},
                     "description": "Days of week from 1 (Monday) to 7 (Sunday). Defaults to all 7 days.",
                 },
-                "family_id": {"type": "STRING", "description": "Optional family ID"},
+                "family_id": {"type": "STRING", "description": "Optional family ID. Automatically resolved by system."},
             },
             "required": ["name"],
         },
@@ -116,25 +115,24 @@ AI_COMPANION_TOOLS = [
     },
     {
         "name": "get_medicine_history",
-        "description": "Read the senior's recorded taken/skipped medicine logs for an inclusive date range (YYYY-MM-DD).",
+        "description": "Read the senior's recorded taken/skipped medicine logs for an inclusive date range (YYYY-MM-DD). Do not ask user for family ID.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "family_id": {"type": "STRING", "description": "Active family ID"},
+                "family_id": {"type": "STRING", "description": "Optional active family ID. Automatically resolved by system."},
                 "start_date": {"type": "STRING", "description": "Start date in YYYY-MM-DD format"},
                 "end_date": {"type": "STRING", "description": "End date in YYYY-MM-DD format"},
                 "timezone": {"type": "STRING", "description": "Timezone, defaults to Asia/Kolkata"},
             },
-            "required": ["family_id", "start_date", "end_date", "timezone"],
+            "required": ["start_date", "end_date", "timezone"],
         },
     },
     {
         "name": "get_family_contacts",
-        "description": "Read the people connected to the active family.",
+        "description": "Read the people connected to the active family. Do not ask user for family ID.",
         "parameters": {
             "type": "OBJECT",
-            "properties": {"family_id": {"type": "STRING", "description": "Active family ID"}},
-            "required": ["family_id"],
+            "properties": {"family_id": {"type": "STRING", "description": "Optional active family ID. Automatically resolved by system."}},
         },
     },
     {
@@ -158,7 +156,7 @@ LIVE_TOOLS = [{"function_declarations": [dict(t, behavior="BLOCKING") for t in A
 
 
 @router.post("/live-token")
-async def live_token(_: dict = Depends(current_user)):
+async def live_token(user: dict = Depends(current_user), db: SupabaseREST = Depends(db_for_user)):
     settings = get_settings()
     if not settings.gemini_api_key:
         raise ServiceError(503, "Voice assistant is not configured on the server")
@@ -192,7 +190,18 @@ async def live_token(_: dict = Depends(current_user)):
     token_value = getattr(token, "name", None) or getattr(token, "token", None)
     if not token_value:
         raise ServiceError(502, "Could not start the voice assistant")
-    return {"token": token_value, "model": settings.gemini_live_model, "expires_at": getattr(token, "expire_time", None)}
+    fam_id = None
+    try:
+        fam_id = await _resolve_family_id({}, user["id"], db)
+    except Exception:
+        pass
+    return {
+        "token": token_value,
+        "model": settings.gemini_live_model,
+        "expires_at": getattr(token, "expire_time", None),
+        "family_id": fam_id,
+        "user_id": user["id"],
+    }
 
 
 async def _resolve_family_id(args: dict, user_id: str, db: SupabaseREST) -> str:
@@ -261,9 +270,16 @@ async def text_chat(
         )
 
         today = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+        active_fam_id = str(payload.family_id) if payload.family_id else None
+        if not active_fam_id:
+            try:
+                active_fam_id = await _resolve_family_id({}, user["id"], db)
+            except Exception:
+                active_fam_id = None
+
         family_instruction = (
-            f"The active family id is {payload.family_id}."
-            if payload.family_id
+            f"The active family id is {active_fam_id}. Always use this family ID for all tools. NEVER ask the senior or user for a family id, family code, or invite code."
+            if active_fam_id
             else "The user has not connected a family group yet. If asked about family tasks or medicines, guide them to connect from the Home screen."
         )
         instruction = (
@@ -395,8 +411,12 @@ async def execute_tool(payload: AIToolExecution, user: dict = Depends(current_us
         raise ServiceError(409, "The user must confirm this change before it can be executed")
     if payload.name == "get_task_summary":
         params = {"order": "due_at.asc.nullslast,created_at.desc"}
-        if args.get("family_id"):
-            params["family_id"] = f"eq.{args['family_id']}"
+        try:
+            fam_id = await _resolve_family_id(args, user["id"], db)
+            params["family_id"] = f"eq.{fam_id}"
+        except Exception:
+            if args.get("family_id"):
+                params["family_id"] = f"eq.{args['family_id']}"
         return {"tasks": await db.select("tasks", **params)}
     if payload.name == "create_task":
         fam_id = await _resolve_family_id(args, user["id"], db)
@@ -432,8 +452,12 @@ async def execute_tool(payload: AIToolExecution, user: dict = Depends(current_us
         return {"result": "completed", "task_id": str(task_id), "log": log}
     if payload.name == "get_medicine_summary":
         params = {"order": "name.asc", "is_active": "eq.true"}
-        if args.get("family_id"):
-            params["family_id"] = f"eq.{args['family_id']}"
+        try:
+            fam_id = await _resolve_family_id(args, user["id"], db)
+            params["family_id"] = f"eq.{fam_id}"
+        except Exception:
+            if args.get("family_id"):
+                params["family_id"] = f"eq.{args['family_id']}"
         medicines = await db.select("medications", **params)
         for medicine in medicines:
             medicine["schedules"] = await db.select(
@@ -509,7 +533,8 @@ async def execute_tool(payload: AIToolExecution, user: dict = Depends(current_us
         return {"result": "updated", "saved": patch_data}
     if payload.name == "get_medicine_history":
         try:
-            family_id = UUID(str(args["family_id"]))
+            fam_id = await _resolve_family_id(args, user["id"], db)
+            family_id = UUID(str(fam_id))
             start_date = date.fromisoformat(str(args["start_date"]))
             end_date = date.fromisoformat(str(args["end_date"]))
             timezone_name = str(args.get("timezone") or "Asia/Kolkata")
@@ -556,9 +581,8 @@ async def execute_tool(payload: AIToolExecution, user: dict = Depends(current_us
         ]
         return {"start_date": start_date.isoformat(), "end_date": end_date.isoformat(), "timezone": timezone_name, "records": records}
     if payload.name == "get_family_contacts":
-        if not args.get("family_id"):
-            raise ServiceError(422, "family_id is required")
-        members = await db.select("family_members", family_id=f"eq.{args['family_id']}", status="eq.active")
+        fam_id = await _resolve_family_id(args, user["id"], db)
+        members = await db.select("family_members", family_id=f"eq.{fam_id}", status="eq.active")
         contacts = []
         for member in members:
             profiles = await db.select("profiles", columns="id,full_name,phone", id=f"eq.{member['user_id']}", limit="1")
