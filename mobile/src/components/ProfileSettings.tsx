@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, Image, StyleSheet, Text, View, Pressable } from "react-native";
+import { Alert, Image, StyleSheet, Text, View, Pressable, Platform } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { ActionButton } from "@/components/ActionButton";
@@ -10,7 +10,7 @@ import { supabase } from "@/services/supabase";
 import { useActiveFamily } from "@/store/activeFamily";
 import type { Language } from "@/store/preferences";
 import { useI18n } from "@/hooks/useI18n";
-import { resolveAvatarUrl } from "@/services/avatarStorage";
+import { resolveAvatarUrl, uploadAvatar } from "@/services/avatarStorage";
 import { colors, radii } from "@/theme/tokens";
 
 export function ProfileSettings() {
@@ -20,7 +20,40 @@ export function ProfileSettings() {
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const { t, language, setLanguage } = useI18n();
+
+  async function pickAndUploadAvatar() {
+    if (Platform.OS === "web") {
+      try {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "image/*";
+        input.onchange = async (e) => {
+          const file = (e.target as HTMLInputElement).files?.[0];
+          if (!file) return;
+          setUploadingAvatar(true);
+          try {
+            const objectUrl = URL.createObjectURL(file);
+            const user = (await supabase.auth.getUser()).data.user;
+            if (!user) return;
+            const { signedUrl } = await uploadAvatar(user.id, objectUrl, file.type || "image/jpeg");
+            if (signedUrl) setAvatarUri(signedUrl);
+            Alert.alert("Profile photo updated");
+          } catch (err) {
+            Alert.alert("Upload error", "Could not upload the avatar image.");
+          } finally {
+            setUploadingAvatar(false);
+          }
+        };
+        input.click();
+      } catch {
+        Alert.alert("Unable to select photo");
+      }
+    } else {
+      Alert.alert("Avatar Upload", "Select a photo to set as your profile avatar.");
+    }
+  }
 
   useEffect(() => {
     void supabase.auth.getUser().then(({ data }) => {
@@ -70,17 +103,27 @@ export function ProfileSettings() {
 
       {/* Profile Card */}
       <View style={styles.profileCard}>
-        <View style={styles.avatarCircle}>
-          {avatarUri ? (
-            <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
-          ) : (
-            <Ionicons
-              name={isElderly ? "person" : "shield-checkmark"}
-              size={36}
-              color={colors.blue}
-            />
-          )}
-        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Change profile photo"
+          onPress={pickAndUploadAvatar}
+          style={styles.avatarPressable}
+        >
+          <View style={styles.avatarCircle}>
+            {avatarUri ? (
+              <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+            ) : (
+              <Ionicons
+                name={isElderly ? "person" : "shield-checkmark"}
+                size={36}
+                color={colors.blue}
+              />
+            )}
+          </View>
+          <View style={styles.cameraIconBadge}>
+            <Ionicons name="camera" size={14} color={colors.white} />
+          </View>
+        </Pressable>
         <View style={styles.profileTextCol}>
           <Text style={styles.displayName}>{fullName || (isElderly ? t("seniorMember") : t("familyCaregiver"))}</Text>
           <Text style={styles.emailText}>{email}</Text>
@@ -228,6 +271,22 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.03,
     shadowRadius: 6,
     elevation: 2,
+  },
+  avatarPressable: {
+    position: "relative",
+  },
+  cameraIconBadge: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    backgroundColor: colors.blue,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: colors.white,
   },
   avatarCircle: {
     width: 60,

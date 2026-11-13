@@ -34,9 +34,16 @@ async def get_family(family_id: UUID, db: SupabaseREST = Depends(db_for_user)):
     return rows[0]
 
 
+INVITE_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+
+
+def generate_invite_code(length: int = 6) -> str:
+    return "".join(secrets.choice(INVITE_CODE_ALPHABET) for _ in range(length))
+
+
 @router.post("/families/{family_id}/invite", status_code=201)
 async def invite_member(family_id: UUID, payload: FamilyInvite, user: dict = Depends(current_user), db: SupabaseREST = Depends(db_for_user)):
-    token = secrets.token_urlsafe(32)
+    token = generate_invite_code(6)
     expires_at = datetime.now(UTC) + timedelta(hours=payload.expires_in_hours)
     invite = await db.insert("invitations", {
         "family_id": str(family_id), "email": payload.email, "role": payload.role,
@@ -49,7 +56,9 @@ async def invite_member(family_id: UUID, payload: FamilyInvite, user: dict = Dep
 
 @router.post("/invitations/accept", status_code=201)
 async def accept_invitation(payload: InvitationAccept, db: SupabaseREST = Depends(db_for_user)):
-    result = await db.rpc("accept_family_invitation", {"p_token_hash": hashlib.sha256(payload.token.encode()).hexdigest()})
+    raw_token = payload.token.strip()
+    token = raw_token.upper() if len(raw_token) == 6 else raw_token
+    result = await db.rpc("accept_family_invitation", {"p_token_hash": hashlib.sha256(token.encode()).hexdigest()})
     return result
 
 

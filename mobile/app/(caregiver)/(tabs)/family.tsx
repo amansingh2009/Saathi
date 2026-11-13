@@ -247,9 +247,9 @@ const styles = StyleSheet.create({
   },
   codeText: {
     fontFamily: "Inter_700Bold",
-    fontSize: 18,
+    fontSize: 24,
     color: colors.blue,
-    letterSpacing: 1,
+    letterSpacing: 4,
     textAlign: "center",
   },
   membersSection: {

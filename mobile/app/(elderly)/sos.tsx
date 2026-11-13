@@ -213,6 +213,8 @@ export default function SOS() {
             <Text style={styles.contactRole}>{t("emergencyContact")} • {caregiverPhone}</Text>
           </View>
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Call ${caregiverName}`}
             onPress={() => Linking.openURL(`tel:${caregiverPhone}`)}
             style={styles.callCircleBtn}
           >

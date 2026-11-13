@@ -346,6 +346,9 @@ export default function SeniorConnectScreen() {
       {/* Tabs */}
       <View style={styles.tabContainer}>
         <Pressable
+          accessibilityRole="tab"
+          accessibilityState={{ selected: activeTab === "friends" }}
+          accessibilityLabel={t("friendsTab", { count: friends.length })}
           style={[styles.tabButton, activeTab === "friends" && styles.activeTabButton]}
           onPress={() => setActiveTab("friends")}
         >
@@ -355,6 +358,9 @@ export default function SeniorConnectScreen() {
         </Pressable>
 
         <Pressable
+          accessibilityRole="tab"
+          accessibilityState={{ selected: activeTab === "requests" }}
+          accessibilityLabel={t("requestsTab", { count: pendingReceived.length })}
           style={[styles.tabButton, activeTab === "requests" && styles.activeTabButton]}
           onPress={() => setActiveTab("requests")}
         >
@@ -364,6 +370,9 @@ export default function SeniorConnectScreen() {
         </Pressable>
 
         <Pressable
+          accessibilityRole="tab"
+          accessibilityState={{ selected: activeTab === "discover" }}
+          accessibilityLabel={t("discoverTab")}
           style={[styles.tabButton, activeTab === "discover" && styles.activeTabButton]}
           onPress={() => setActiveTab("discover")}
         >
@@ -373,6 +382,9 @@ export default function SeniorConnectScreen() {
         </Pressable>
 
         <Pressable
+          accessibilityRole="tab"
+          accessibilityState={{ selected: activeTab === "profile" }}
+          accessibilityLabel={t("myProfileTab")}
           style={[styles.tabButton, activeTab === "profile" && styles.activeTabButton]}
           onPress={() => setActiveTab("profile")}
         >
@@ -461,6 +473,8 @@ export default function SeniorConnectScreen() {
                   {/* Safety Options */}
                   <View style={styles.safetyRow}>
                     <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Block ${item.peer_name}`}
                       onPress={() => handleBlock(item.peer_id, item.peer_name)}
                       style={styles.safetyLink}
                     >
@@ -468,6 +482,8 @@ export default function SeniorConnectScreen() {
                     </Pressable>
                     <Text style={styles.safetyDivider}>•</Text>
                     <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Report ${item.peer_name}`}
                       onPress={() => handleReport(item.peer_id, item.peer_name)}
                       style={styles.safetyLink}
                     >
@@ -505,12 +521,16 @@ export default function SeniorConnectScreen() {
 
                   <View style={styles.actionRow}>
                     <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Accept request from ${req.peer_name}`}
                       style={[styles.actionBtn, { backgroundColor: colors.green }]}
                       onPress={() => handleAcceptRequest(req.id)}
                     >
                       <Text style={styles.actionBtnText}>Accept</Text>
                     </Pressable>
                     <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Decline request from ${req.peer_name}`}
                       style={[styles.actionBtn, { backgroundColor: colors.muted }]}
                       onPress={() => handleRejectRequest(req.id)}
                     >
@@ -619,6 +639,9 @@ export default function SeniorConnectScreen() {
 
               {/* Discoverability toggle */}
               <Pressable
+                accessibilityRole="switch"
+                accessibilityState={{ checked: isDiscoverable }}
+                accessibilityLabel="Allow others to discover me"
                 style={styles.toggleRow}
                 onPress={() => setIsDiscoverable(!isDiscoverable)}
               >

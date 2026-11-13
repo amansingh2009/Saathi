@@ -146,6 +146,7 @@ def test_family_invitation_returns_raw_token_but_stores_only_hash():
         response = client.post(f"/api/v1/families/{FAMILY_ID}/invite", json={"role": "elderly", "expires_in_hours": 24})
     assert response.status_code == 201
     raw_token = response.json()["invite_token"]
+    assert len(raw_token) == 6
     stored = db.inserts[0][1]
     assert stored["token_hash"] == hashlib.sha256(raw_token.encode()).hexdigest()
     assert raw_token not in str(stored)

@@ -27,7 +27,7 @@ export default function JoinFamily() {
         "/invitations/accept",
         {
           method: "POST",
-          body: JSON.stringify({ token: token.trim() }),
+          body: JSON.stringify({ token: token.trim().toUpperCase() }),
         }
       );
       router.replace(membership.role === "elderly" ? "/(elderly)/(tabs)" : "/(caregiver)/(tabs)");
@@ -70,6 +70,7 @@ export default function JoinFamily() {
           accessibilityLabel="Invitation code"
           autoCapitalize="characters"
           autoCorrect={false}
+          maxLength={6}
           placeholder="e.g. AB12CD"
           placeholderTextColor={colors.muted}
           value={token}
